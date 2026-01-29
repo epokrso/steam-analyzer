@@ -2,6 +2,7 @@
 
 Ce script surveille automatiquement l'inventaire Steam de ton compte, estime la valeur des items, et propose une analyse de marché (items interéssant a vendre ou pas).  
 Il embarque aussi un mini serveur web pour visualiser les données en temps réel.
+Je suis ouvert à toutes propositions d'améliorations
 
 ## Fonctionnalités
 - Suivi des inventaires pour une liste de jeux configurés
