@@ -71,12 +71,24 @@ def get_steamid64() -> str:
     settings = load_settings()
     return str(settings.get("steamid64") or STEAM_ID64)
 
+
+def _interrupted() -> bool:
+    return STOP_EVENT.is_set() or UPDATE_EVENT.is_set()
+
+
+def _sleep_interruptible(seconds: float, step: float = 0.2) -> None:
+    remaining = max(0.0, float(seconds))
+    while remaining > 0 and not _interrupted():
+        chunk = min(step, remaining)
+        time.sleep(chunk)
+        remaining -= chunk
+
 def _sleep_for_rate_limit():
     global _last_market_call
     now = time.time()
     wait = MARKET_MIN_DELAY - (now - _last_market_call)
     if wait > 0:
-        time.sleep(wait + random.random() * MARKET_JITTER)
+        _sleep_interruptible(wait + random.random() * MARKET_JITTER)
     _last_market_call = time.time()
 
 
@@ -392,6 +404,8 @@ def fetch_price_overview(appid: int, market_hash_name: str, currency: int = 3) -
     params = {"appid": appid, "currency": currency, "market_hash_name": market_hash_name}
 
     for attempt in range(1, MARKET_MAX_RETRIES + 1):
+        if _interrupted():
+            return None
         _sleep_for_rate_limit()
 
         r = session.get(url, params=params, timeout=20)
@@ -401,7 +415,7 @@ def fetch_price_overview(appid: int, market_hash_name: str, currency: int = 3) -
             # backoff exponentiel + jitter
             backoff = min(60, (2 ** attempt)) + random.random() * 2.0
             print(f"  [market] 429 rate-limited. Backoff {backoff:.1f}s (attempt {attempt}/{MARKET_MAX_RETRIES})")
-            time.sleep(backoff)
+            _sleep_interruptible(backoff)
             continue
 
         # Autres erreurs HTTP
@@ -491,6 +505,8 @@ def _parse_int(s: str) -> int:
 
 def fetch_item_nameid(appid: int, market_hash_name: str) -> Optional[int]:
     url = f"https://steamcommunity.com/market/listings/{appid}/{quote(market_hash_name)}"
+    if _interrupted():
+        return None
     try:
         r = session.get(url, timeout=20)
         r.raise_for_status()
@@ -515,6 +531,8 @@ def fetch_orders_histogram(item_nameid: int, currency: int = 3) -> Optional[dict
         "item_nameid": str(item_nameid),
         "two_factor": 0,
     }
+    if _interrupted():
+        return None
     try:
         r = session.get(url, params=params, timeout=20)
         r.raise_for_status()
@@ -529,6 +547,8 @@ def fetch_orders_histogram(item_nameid: int, currency: int = 3) -> Optional[dict
 def fetch_price_history(appid: int, market_hash_name: str, currency: int = 3) -> Optional[dict]:
     url = "https://steamcommunity.com/market/pricehistory/"
     params = {"appid": appid, "currency": currency, "market_hash_name": market_hash_name}
+    if _interrupted():
+        return None
     try:
         r = session.get(url, params=params, timeout=20)
         r.raise_for_status()
@@ -541,6 +561,8 @@ def fetch_price_history(appid: int, market_hash_name: str, currency: int = 3) ->
 
 
 def analyze_item_market(appid: int, market_hash_name: str) -> dict:
+    if _interrupted():
+        return {"status": "skipped", "reason": "interrupted", "decision": "hold"}
     html = fetch_listing_html(appid, market_hash_name)
     listing = parse_listing_html(html)
 
@@ -1089,7 +1111,7 @@ def main(steamid64: str):
         state["value_history"].append({"ts": int(time.time()), "total_cents": cycle_total_cents})
         state["value_history"] = state["value_history"][-10000:]
         save_state(state)
-        STOP_EVENT.wait(POLL_SECONDS)
+        _sleep_interruptible(POLL_SECONDS, step=0.5)
 
     if UPDATE_EVENT.is_set():
         run_git_pull()
