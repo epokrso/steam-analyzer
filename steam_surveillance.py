@@ -200,6 +200,10 @@ def login_and_save_cookies() -> str:
                         submit_label = frame.get_by_role("button", name="Se connecter")
                         if submit_label.count() > 0:
                             submit_label.first.click()
+                            try:
+                                frame.page.wait_for_load_state("domcontentloaded", timeout=15000)
+                            except Exception:
+                                pass
                         return True
                 except Exception:
                     pass
@@ -251,6 +255,17 @@ def login_and_save_cookies() -> str:
                 )
                 if submit.count() > 0:
                     submit.first.click()
+                    try:
+                        frame.page.wait_for_load_state("domcontentloaded", timeout=15000)
+                    except Exception:
+                        pass
+                else:
+                    # Fallback: submit via Enter on password field.
+                    try:
+                        pass_locator.first.press("Enter")
+                        frame.page.wait_for_load_state("domcontentloaded", timeout=15000)
+                    except Exception:
+                        pass
                 return True
             except Exception:
                 return False
