@@ -237,20 +237,24 @@ def login_and_save_cookies() -> str:
         context = browser.new_context()
         page = context.new_page()
 
+        print("[login] Open login page...")
         page.goto("https://steamcommunity.com/login/home/?goto=%2Fmy%2F", wait_until="domcontentloaded")
         page.wait_for_timeout(2000)
 
         def fill_in_frame(frame) -> bool:
             try:
+                print(f"[login] frame url: {frame.url}")
                 # Try label-based targeting (localised UI on community login).
                 try:
                     label_user = frame.get_by_label("Se connecter avec un nom de compte")
                     label_pass = frame.get_by_label("Mot de passe")
                     if label_user.count() > 0 and label_pass.count() > 0:
+                        print("[login] label fields found")
                         label_user.first.fill(username)
                         label_pass.first.fill(password)
                         submit_label = frame.get_by_role("button", name="Se connecter")
                         if submit_label.count() > 0:
+                            print("[login] clicking submit by label")
                             submit_label.first.click()
                             try:
                                 frame.page.wait_for_load_state("domcontentloaded", timeout=15000)
@@ -268,18 +272,23 @@ def login_and_save_cookies() -> str:
                     "input[type='password'], input[name='password'], input#input_password, "
                     "input._2GBWeup5cttgbTw8FM3tfx[type='password']"
                 )
+                print(f"[login] user inputs: {user_locator.count()} pass inputs: {pass_locator.count()}")
                 if user_locator.count() == 0 or pass_locator.count() == 0:
                     return False
                 user_locator.first.wait_for(state="visible", timeout=8000)
                 pass_locator.first.wait_for(state="visible", timeout=8000)
                 try:
+                    print("[login] fill username via fill()")
                     user_locator.first.fill(username)
                 except Exception:
+                    print("[login] fill username via type()")
                     user_locator.first.click()
                     user_locator.first.type(username, delay=20)
                 try:
+                    print("[login] fill password via fill()")
                     pass_locator.first.fill(password)
                 except Exception:
+                    print("[login] fill password via type()")
                     pass_locator.first.click()
                     pass_locator.first.type(password, delay=20)
 
@@ -305,14 +314,18 @@ def login_and_save_cookies() -> str:
                     "button[type='submit'], button:has-text('Sign In'), button:has-text('Connexion'), "
                     "button#login_btn_signin, button.DjSvCZoKKfoNSmarsEcTS, button:has-text('Se connecter')"
                 )
+                print(f"[login] submit buttons: {submit.count()}")
                 if submit.count() > 0:
                     try:
+                        print("[login] clicking submit")
                         submit.first.click()
                     except Exception:
                         try:
+                            print("[login] clicking submit force")
                             submit.first.click(force=True)
                         except Exception:
                             try:
+                                print("[login] clicking submit via JS")
                                 frame.evaluate(
                                     """(btnSel) => {
                                         const btn = document.querySelector(btnSel);
@@ -322,7 +335,10 @@ def login_and_save_cookies() -> str:
                                 )
                             except Exception:
                                 pass
-                    _human_click(submit, frame.page)
+                    if _human_click(submit, frame.page):
+                        print("[login] human click ok")
+                    else:
+                        print("[login] human click failed")
                     try:
                         frame.page.wait_for_load_state("domcontentloaded", timeout=15000)
                     except Exception:
@@ -330,12 +346,14 @@ def login_and_save_cookies() -> str:
                 else:
                     # Fallback: submit via Enter on password field.
                     try:
+                        print("[login] submit via Enter")
                         pass_locator.first.press("Enter")
                         frame.page.wait_for_load_state("domcontentloaded", timeout=15000)
                     except Exception:
                         pass
                 # Last resort: submit the nearest form via JS.
                 try:
+                    print("[login] submit form via JS")
                     frame.evaluate(
                         """(userSel, passSel) => {
                             const u = document.querySelector(userSel);
@@ -352,6 +370,7 @@ def login_and_save_cookies() -> str:
                     pass
                 return True
             except Exception:
+                print("[login] fill_in_frame failed")
                 return False
 
         filled = False
