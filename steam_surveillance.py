@@ -295,7 +295,11 @@ def login_and_save_cookies() -> str:
 
                 # Ensure values are set in case of custom JS handlers.
                 frame.evaluate(
-                    """(userSel, passSel, u, p) => {
+                    """(args) => {
+                        const userSel = args.userSel;
+                        const passSel = args.passSel;
+                        const u = args.u;
+                        const p = args.p;
                         const setVal = (sel, v) => {
                             const el = document.querySelector(sel);
                             if (!el) return;
@@ -306,10 +310,12 @@ def login_and_save_cookies() -> str:
                         setVal(userSel, u);
                         setVal(passSel, p);
                     }""",
-                    "input[name='username'], input[type='text'][autocomplete='username'], input[name='login']",
-                    "input[type='password'], input[name='password']",
-                    username,
-                    password,
+                    {
+                        "userSel": "input[name='username'], input[type='text'][autocomplete='username'], input[name='login'], input#input_username, input[name='accountname'], input._2GBWeup5cttgbTw8FM3tfx[type='text']",
+                        "passSel": "input[type='password'], input[name='password'], input#input_password, input._2GBWeup5cttgbTw8FM3tfx[type='password']",
+                        "u": username,
+                        "p": password,
+                    },
                 )
                 submit = frame.locator(
                     "button[type='submit'], button:has-text('Sign In'), button:has-text('Connexion'), "
@@ -356,15 +362,17 @@ def login_and_save_cookies() -> str:
                 try:
                     print("[login] submit form via JS")
                     frame.evaluate(
-                        """(userSel, passSel) => {
-                            const u = document.querySelector(userSel);
-                            const p = document.querySelector(passSel);
+                        """(args) => {
+                            const u = document.querySelector(args.userSel);
+                            const p = document.querySelector(args.passSel);
                             const form = (u && u.closest('form')) || (p && p.closest('form'));
                             if (form && form.requestSubmit) form.requestSubmit();
                             else if (form) form.submit();
                         }""",
-                        "input[name='username'], input[type='text'][autocomplete='username'], input[name='login'], input#input_username, input[name='accountname'], input._2GBWeup5cttgbTw8FM3tfx[type='text']",
-                        "input[type='password'], input[name='password'], input#input_password, input._2GBWeup5cttgbTw8FM3tfx[type='password']",
+                        {
+                            "userSel": "input[name='username'], input[type='text'][autocomplete='username'], input[name='login'], input#input_username, input[name='accountname'], input._2GBWeup5cttgbTw8FM3tfx[type='text']",
+                            "passSel": "input[type='password'], input[name='password'], input#input_password, input._2GBWeup5cttgbTw8FM3tfx[type='password']",
+                        },
                     )
                     frame.page.wait_for_load_state("domcontentloaded", timeout=15000)
                 except Exception:
