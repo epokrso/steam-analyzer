@@ -289,7 +289,13 @@ def login_and_save_cookies() -> str:
                     "button#login_btn_signin, button.DjSvCZoKKfoNSmarsEcTS, button:has-text('Se connecter')"
                 )
                 if submit.count() > 0:
-                    submit.first.click()
+                    try:
+                        submit.first.click()
+                    except Exception:
+                        try:
+                            submit.first.click(force=True)
+                        except Exception:
+                            pass
                     try:
                         frame.page.wait_for_load_state("domcontentloaded", timeout=15000)
                     except Exception:
@@ -298,6 +304,22 @@ def login_and_save_cookies() -> str:
                     # Fallback: submit via Enter on password field.
                     try:
                         pass_locator.first.press("Enter")
+                        frame.page.wait_for_load_state("domcontentloaded", timeout=15000)
+                    except Exception:
+                        pass
+                    # Last resort: submit the nearest form via JS.
+                    try:
+                        frame.evaluate(
+                            """(userSel, passSel) => {
+                                const u = document.querySelector(userSel);
+                                const p = document.querySelector(passSel);
+                                const form = (u && u.closest('form')) || (p && p.closest('form'));
+                                if (form && form.requestSubmit) form.requestSubmit();
+                                else if (form) form.submit();
+                            }""",
+                            "input[name='username'], input[type='text'][autocomplete='username'], input[name='login'], input#input_username, input[name='accountname'], input._2GBWeup5cttgbTw8FM3tfx[type='text']",
+                            "input[type='password'], input[name='password'], input#input_password, input._2GBWeup5cttgbTw8FM3tfx[type='password']",
+                        )
                         frame.page.wait_for_load_state("domcontentloaded", timeout=15000)
                     except Exception:
                         pass
