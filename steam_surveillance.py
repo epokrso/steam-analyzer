@@ -186,6 +186,7 @@ def login_and_save_cookies() -> str:
         page = context.new_page()
 
         page.goto("https://store.steampowered.com/login/", wait_until="domcontentloaded")
+        page.wait_for_timeout(2000)
 
         def fill_in_frame(frame) -> bool:
             try:
@@ -259,6 +260,10 @@ def login_and_save_cookies() -> str:
             filled = True
         else:
             for frame in page.frames:
+                try:
+                    frame.wait_for_timeout(500)
+                except Exception:
+                    pass
                 if fill_in_frame(frame):
                     filled = True
                     break
