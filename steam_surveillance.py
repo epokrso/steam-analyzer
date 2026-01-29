@@ -295,7 +295,16 @@ def login_and_save_cookies() -> str:
                         try:
                             submit.first.click(force=True)
                         except Exception:
-                            pass
+                            try:
+                                frame.evaluate(
+                                    """(btnSel) => {
+                                        const btn = document.querySelector(btnSel);
+                                        if (btn) btn.click();
+                                    }""",
+                                    "button.DjSvCZoKKfoNSmarsEcTS",
+                                )
+                            except Exception:
+                                pass
                     try:
                         frame.page.wait_for_load_state("domcontentloaded", timeout=15000)
                     except Exception:
@@ -307,22 +316,22 @@ def login_and_save_cookies() -> str:
                         frame.page.wait_for_load_state("domcontentloaded", timeout=15000)
                     except Exception:
                         pass
-                    # Last resort: submit the nearest form via JS.
-                    try:
-                        frame.evaluate(
-                            """(userSel, passSel) => {
-                                const u = document.querySelector(userSel);
-                                const p = document.querySelector(passSel);
-                                const form = (u && u.closest('form')) || (p && p.closest('form'));
-                                if (form && form.requestSubmit) form.requestSubmit();
-                                else if (form) form.submit();
-                            }""",
-                            "input[name='username'], input[type='text'][autocomplete='username'], input[name='login'], input#input_username, input[name='accountname'], input._2GBWeup5cttgbTw8FM3tfx[type='text']",
-                            "input[type='password'], input[name='password'], input#input_password, input._2GBWeup5cttgbTw8FM3tfx[type='password']",
-                        )
-                        frame.page.wait_for_load_state("domcontentloaded", timeout=15000)
-                    except Exception:
-                        pass
+                # Last resort: submit the nearest form via JS.
+                try:
+                    frame.evaluate(
+                        """(userSel, passSel) => {
+                            const u = document.querySelector(userSel);
+                            const p = document.querySelector(passSel);
+                            const form = (u && u.closest('form')) || (p && p.closest('form'));
+                            if (form && form.requestSubmit) form.requestSubmit();
+                            else if (form) form.submit();
+                        }""",
+                        "input[name='username'], input[type='text'][autocomplete='username'], input[name='login'], input#input_username, input[name='accountname'], input._2GBWeup5cttgbTw8FM3tfx[type='text']",
+                        "input[type='password'], input[name='password'], input#input_password, input._2GBWeup5cttgbTw8FM3tfx[type='password']",
+                    )
+                    frame.page.wait_for_load_state("domcontentloaded", timeout=15000)
+                except Exception:
+                    pass
                 return True
             except Exception:
                 return False
