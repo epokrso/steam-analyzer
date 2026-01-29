@@ -185,7 +185,7 @@ def login_and_save_cookies() -> str:
         context = browser.new_context()
         page = context.new_page()
 
-        page.goto("https://store.steampowered.com/login/", wait_until="domcontentloaded")
+        page.goto("https://steamcommunity.com/login/home/?goto=%2Fmy%2F", wait_until="domcontentloaded")
         page.wait_for_timeout(2000)
 
         def fill_in_frame(frame) -> bool:
