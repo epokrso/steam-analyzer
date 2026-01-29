@@ -161,6 +161,41 @@ def _wait_for_steamid(page, timeout_s: int = 180) -> Optional[str]:
     return None
 
 
+def _wait_for_login_complete(page, timeout_s: int = 180) -> Optional[str]:
+    start = time.time()
+    asked_guard = False
+    while time.time() - start < timeout_s and not _interrupted():
+        try:
+            html = page.content()
+            steamid64 = _extract_steamid64(html)
+            if steamid64:
+                return steamid64
+        except Exception:
+            pass
+
+        # Detect Steam Guard input (email/app code) and prompt once.
+        try:
+            guard_selectors = [
+                "input[name='steamguardcode']",
+                "input[name='authcode']",
+                "input[name='emailauth']",
+            ]
+            for sel in guard_selectors:
+                loc = page.locator(sel)
+                if loc.count() > 0 and not asked_guard:
+                    code = input("Steam Guard code (laisser vide si validation via appli): ").strip()
+                    if code:
+                        loc.first.fill(code)
+                        page.locator("button[type='submit'], button:has-text('Submit'), button:has-text('Valider')").first.click()
+                    asked_guard = True
+                    break
+        except Exception:
+            pass
+
+        time.sleep(1.0)
+    return None
+
+
 def login_and_save_cookies() -> str:
     try:
         from getpass import getpass
@@ -285,31 +320,14 @@ def login_and_save_cookies() -> str:
         if not filled:
             print("[login] Impossible de remplir les champs automatiquement. Essaie en mode UI.")
 
-        # Handle Steam Guard if prompted.
-        try:
-            page.wait_for_timeout(1500)
-            guard_selectors = [
-                "input[name='steamguardcode']",
-                "input[name='authcode']",
-                "input[name='emailauth']",
-            ]
-            for sel in guard_selectors:
-                if page.locator(sel).count() > 0:
-                    code = input("Steam Guard code: ").strip()
-                    if code:
-                        page.fill(sel, code)
-                        page.click("button[type='submit']")
-                    break
-        except Exception:
-            pass
-
         # Wait for login / Steam Guard app approval to complete.
-        page.goto("https://steamcommunity.com/my/", wait_until="domcontentloaded")
-        steamid64 = _wait_for_steamid(page, timeout_s=180)
+        steamid64 = _wait_for_login_complete(page, timeout_s=180)
         if not steamid64:
-            # If mobile app approval is required, wait a bit longer.
             print("[login] En attente de validation Steam Guard (appli)...")
-            steamid64 = _wait_for_steamid(page, timeout_s=180)
+            steamid64 = _wait_for_login_complete(page, timeout_s=180)
+        if not steamid64:
+            page.goto("https://steamcommunity.com/my/", wait_until="domcontentloaded")
+            steamid64 = _wait_for_steamid(page, timeout_s=60)
         if not steamid64 and not headless:
             input("Termine la connexion dans la fenetre, puis appuie sur Entree...")
             page.goto("https://steamcommunity.com/my/", wait_until="domcontentloaded")
