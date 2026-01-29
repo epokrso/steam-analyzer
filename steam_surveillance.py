@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# le script a etais mis a jour avec succes, bravo
 import time
 import json
 import subprocess
