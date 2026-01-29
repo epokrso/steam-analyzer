@@ -189,25 +189,43 @@ def login_and_save_cookies() -> str:
 
         def fill_in_frame(frame) -> bool:
             try:
-                user_locator = frame.locator("input[name='username'], input[type='text'][autocomplete='username']")
-                pass_locator = frame.locator("input[type='password']")
+                user_locator = frame.locator(
+                    "input[name='username'], input[type='text'][autocomplete='username'], input[name='login']"
+                )
+                pass_locator = frame.locator("input[type='password'], input[name='password']")
                 if user_locator.count() == 0 or pass_locator.count() == 0:
                     return False
-                user_locator.first.wait_for(state="visible", timeout=5000)
-                pass_locator.first.wait_for(state="visible", timeout=5000)
+                user_locator.first.wait_for(state="visible", timeout=8000)
+                pass_locator.first.wait_for(state="visible", timeout=8000)
+                try:
+                    user_locator.first.fill(username)
+                except Exception:
+                    user_locator.first.click()
+                    user_locator.first.type(username, delay=20)
+                try:
+                    pass_locator.first.fill(password)
+                except Exception:
+                    pass_locator.first.click()
+                    pass_locator.first.type(password, delay=20)
+
+                # Ensure values are set in case of custom JS handlers.
                 frame.evaluate(
-                    """([u, p]) => {
-                        const setVal = (el, v) => {
+                    """(userSel, passSel, u, p) => {
+                        const setVal = (sel, v) => {
+                            const el = document.querySelector(sel);
+                            if (!el) return;
                             el.value = v;
                             el.dispatchEvent(new Event('input', { bubbles: true }));
                             el.dispatchEvent(new Event('change', { bubbles: true }));
                         };
-                        setVal(document.querySelector(u), arguments[1]);
+                        setVal(userSel, u);
+                        setVal(passSel, p);
                     }""",
-                    "input[name='username']",
+                    "input[name='username'], input[type='text'][autocomplete='username'], input[name='login']",
+                    "input[type='password'], input[name='password']",
                     username,
+                    password,
                 )
-                pass_locator.first.fill(password)
                 submit = frame.locator("button[type='submit'], button:has-text('Sign In'), button:has-text('Connexion')")
                 if submit.count() > 0:
                     submit.first.click()
