@@ -190,9 +190,10 @@ def login_and_save_cookies() -> str:
         def fill_in_frame(frame) -> bool:
             try:
                 user_locator = frame.locator(
-                    "input[name='username'], input[type='text'][autocomplete='username'], input[name='login']"
+                    "input[name='username'], input[type='text'][autocomplete='username'], input[name='login'], "
+                    "input#input_username, input[name='accountname']"
                 )
-                pass_locator = frame.locator("input[type='password'], input[name='password']")
+                pass_locator = frame.locator("input[type='password'], input[name='password'], input#input_password")
                 if user_locator.count() == 0 or pass_locator.count() == 0:
                     return False
                 user_locator.first.wait_for(state="visible", timeout=8000)
@@ -226,7 +227,10 @@ def login_and_save_cookies() -> str:
                     username,
                     password,
                 )
-                submit = frame.locator("button[type='submit'], button:has-text('Sign In'), button:has-text('Connexion')")
+                submit = frame.locator(
+                    "button[type='submit'], button:has-text('Sign In'), button:has-text('Connexion'), "
+                    "button#login_btn_signin"
+                )
                 if submit.count() > 0:
                     submit.first.click()
                 return True
