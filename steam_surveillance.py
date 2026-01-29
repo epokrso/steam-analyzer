@@ -9,6 +9,7 @@ import threading
 import re
 import os
 import atexit
+import sys
 from pathlib import Path
 from typing import Dict, Set, Tuple, Optional, Any
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -471,6 +472,34 @@ def analyze_item_market(appid: int, market_hash_name: str) -> dict:
 # ---------------------------
 STOP_EVENT = threading.Event()
 HTTPD = None
+UPDATE_EVENT = threading.Event()
+
+
+def run_git_pull() -> bool:
+    try:
+        r = subprocess.run(
+            ["git", "pull", "--ff-only"],
+            cwd=str(BASE_DIR),
+            capture_output=True,
+            text=True,
+        )
+        if r.returncode != 0:
+            print(f"[update] git pull failed: {r.stderr.strip()}")
+            return False
+        out = (r.stdout or "").strip()
+        print(f"[update] git pull ok: {out}")
+        return True
+    except Exception as e:
+        print(f"[update] git pull error: {e}")
+        return False
+
+
+def restart_self() -> None:
+    try:
+        print("[update] restarting...")
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+    except Exception as e:
+        print(f"[update] restart failed: {e}")
 
 
 def build_payload(state: dict) -> dict:
@@ -606,6 +635,9 @@ INDEX_HTML = """<!doctype html>
     <button id="stopBtn" style="margin-top:8px;padding:6px 10px;border:1px solid #e4c9b8;border-radius:10px;background:#fff3e2;cursor:pointer;">
       Arreter le script
     </button>
+    <button id="updateBtn" style="margin-top:8px;margin-left:8px;padding:6px 10px;border:1px solid #e4c9b8;border-radius:10px;background:#ffe6cf;cursor:pointer;">
+      Mettre a jour
+    </button>
   </header>
   <div class="grid">
     <section class="card">
@@ -734,6 +766,12 @@ INDEX_HTML = """<!doctype html>
     if (!confirm("Arreter le script maintenant ?")) return;
     await fetch("/stop", { method: "POST" });
   });
+
+  document.getElementById("updateBtn").addEventListener("click", async () => {
+    if (!confirm("Mettre a jour via GitHub et redemarrer ensuite ?")) return;
+    await fetch("/update", { method: "POST" });
+    alert("Mise a jour lancee. Le script va redemarrer.");
+  });
 </script>
 </body>
 </html>
@@ -779,6 +817,20 @@ class Handler(BaseHTTPRequestHandler):
             STOP_EVENT.set()
             if HTTPD is not None:
                 threading.Thread(target=HTTPD.shutdown, daemon=True).start()
+            # Force process exit shortly after responding, like killing the task.
+            threading.Thread(target=lambda: (time.sleep(0.4), os._exit(0)), daemon=True).start()
+            return
+        if path == "/update":
+            body = b"updating"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            UPDATE_EVENT.set()
+            STOP_EVENT.set()
+            if HTTPD is not None:
+                threading.Thread(target=HTTPD.shutdown, daemon=True).start()
             return
         self.send_response(404)
         self.end_headers()
@@ -805,6 +857,8 @@ def main():
     print("Games:", ", ".join([f"{appid} ({GAMES[appid]['name']})" for appid in GAMES]))
 
     while not STOP_EVENT.is_set():
+        if UPDATE_EVENT.is_set():
+            break
         cycle_total_cents = 0
         inventory_changed = False
         for appid, cfg in GAMES.items():
@@ -909,7 +963,11 @@ def main():
         state["value_history"].append({"ts": int(time.time()), "total_cents": cycle_total_cents})
         state["value_history"] = state["value_history"][-10000:]
         save_state(state)
-        time.sleep(POLL_SECONDS)
+        STOP_EVENT.wait(POLL_SECONDS)
+
+    if UPDATE_EVENT.is_set():
+        run_git_pull()
+        restart_self()
 
 
 if __name__ == "__main__":
@@ -923,5 +981,8 @@ if __name__ == "__main__":
         main()
     elif args.server:
         serve_web()
+        if UPDATE_EVENT.is_set():
+            run_git_pull()
+            restart_self()
     else:
         main()
