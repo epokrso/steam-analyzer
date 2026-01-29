@@ -10,6 +10,7 @@ import re
 import os
 import atexit
 import sys
+import traceback
 from pathlib import Path
 from typing import Dict, Set, Tuple, Optional, Any
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -369,8 +370,9 @@ def login_and_save_cookies() -> str:
                 except Exception:
                     pass
                 return True
-            except Exception:
-                print("[login] fill_in_frame failed")
+            except Exception as e:
+                print(f"[login] fill_in_frame failed: {e}")
+                print(traceback.format_exc())
                 return False
 
         filled = False
