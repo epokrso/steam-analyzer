@@ -186,9 +186,45 @@ def login_and_save_cookies() -> str:
         page = context.new_page()
 
         page.goto("https://store.steampowered.com/login/", wait_until="domcontentloaded")
-        page.fill("input[name='username']", username)
-        page.fill("input[type='password']", password)
-        page.click("button[type='submit']")
+
+        def fill_in_frame(frame) -> bool:
+            try:
+                user_locator = frame.locator("input[name='username'], input[type='text'][autocomplete='username']")
+                pass_locator = frame.locator("input[type='password']")
+                if user_locator.count() == 0 or pass_locator.count() == 0:
+                    return False
+                user_locator.first.wait_for(state="visible", timeout=5000)
+                pass_locator.first.wait_for(state="visible", timeout=5000)
+                frame.evaluate(
+                    """([u, p]) => {
+                        const setVal = (el, v) => {
+                            el.value = v;
+                            el.dispatchEvent(new Event('input', { bubbles: true }));
+                            el.dispatchEvent(new Event('change', { bubbles: true }));
+                        };
+                        setVal(document.querySelector(u), arguments[1]);
+                    }""",
+                    "input[name='username']",
+                    username,
+                )
+                pass_locator.first.fill(password)
+                submit = frame.locator("button[type='submit'], button:has-text('Sign In'), button:has-text('Connexion')")
+                if submit.count() > 0:
+                    submit.first.click()
+                return True
+            except Exception:
+                return False
+
+        filled = False
+        if fill_in_frame(page):
+            filled = True
+        else:
+            for frame in page.frames:
+                if fill_in_frame(frame):
+                    filled = True
+                    break
+        if not filled:
+            print("[login] Impossible de remplir les champs automatiquement. Essaie en mode UI.")
 
         # Handle Steam Guard if prompted.
         try:
