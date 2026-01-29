@@ -189,6 +189,20 @@ def login_and_save_cookies() -> str:
 
         def fill_in_frame(frame) -> bool:
             try:
+                # Try label-based targeting (localised UI on community login).
+                try:
+                    label_user = frame.get_by_label("Se connecter avec un nom de compte")
+                    label_pass = frame.get_by_label("Mot de passe")
+                    if label_user.count() > 0 and label_pass.count() > 0:
+                        label_user.first.fill(username)
+                        label_pass.first.fill(password)
+                        submit_label = frame.get_by_role("button", name="Se connecter")
+                        if submit_label.count() > 0:
+                            submit_label.first.click()
+                        return True
+                except Exception:
+                    pass
+
                 user_locator = frame.locator(
                     "input[name='username'], input[type='text'][autocomplete='username'], input[name='login'], "
                     "input#input_username, input[name='accountname']"
