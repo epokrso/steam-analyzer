@@ -342,12 +342,13 @@ def login_and_save_cookies() -> str:
                                 )
                             except Exception:
                                 pass
-                    if _human_click(submit, frame.page):
+                    page_obj = frame.page if hasattr(frame, "page") else frame
+                    if _human_click(submit, page_obj):
                         print("[login] human click ok")
                     else:
                         print("[login] human click failed")
                     try:
-                        frame.page.wait_for_load_state("domcontentloaded", timeout=15000)
+                        page_obj.wait_for_load_state("domcontentloaded", timeout=15000)
                     except Exception:
                         pass
                 else:
@@ -355,7 +356,8 @@ def login_and_save_cookies() -> str:
                     try:
                         print("[login] submit via Enter")
                         pass_locator.first.press("Enter")
-                        frame.page.wait_for_load_state("domcontentloaded", timeout=15000)
+                        page_obj = frame.page if hasattr(frame, "page") else frame
+                        page_obj.wait_for_load_state("domcontentloaded", timeout=15000)
                     except Exception:
                         pass
                 # Last resort: submit the nearest form via JS.
@@ -374,7 +376,8 @@ def login_and_save_cookies() -> str:
                             "passSel": "input[type='password'], input[name='password'], input#input_password, input._2GBWeup5cttgbTw8FM3tfx[type='password']",
                         },
                     )
-                    frame.page.wait_for_load_state("domcontentloaded", timeout=15000)
+                    page_obj = frame.page if hasattr(frame, "page") else frame
+                    page_obj.wait_for_load_state("domcontentloaded", timeout=15000)
                 except Exception:
                     pass
                 return True
