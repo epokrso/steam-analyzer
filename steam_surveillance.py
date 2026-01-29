@@ -33,6 +33,7 @@ POLL_SECONDS = 25 * 60
 
 BASE_DIR = Path(__file__).resolve().parent
 COOKIES_FILE = str(BASE_DIR / "cookies.txt")
+SETTINGS_FILE = BASE_DIR / "settings.json"
 STATE_FILE = BASE_DIR / "inventory_state.json"
 
 # ---------------------------
@@ -52,6 +53,23 @@ _last_market_call = 0.0
 _pw = None
 _browser = None
 _page = None
+
+def load_settings() -> dict:
+    if SETTINGS_FILE.exists():
+        try:
+            return json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
+
+
+def save_settings(settings: dict) -> None:
+    SETTINGS_FILE.write_text(json.dumps(settings, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def get_steamid64() -> str:
+    settings = load_settings()
+    return str(settings.get("steamid64") or STEAM_ID64)
 
 def _sleep_for_rate_limit():
     global _last_market_call
@@ -92,6 +110,106 @@ def _close_playwright():
     except Exception:
         pass
 
+
+def _extract_steamid64(html: str) -> Optional[str]:
+    m = re.search(r'"steamid"\s*:\s*"(\d{17})"', html)
+    if m:
+        return m.group(1)
+    m = re.search(r"g_steamID\s*=\s*\"(\d{17})\"", html)
+    if m:
+        return m.group(1)
+    return None
+
+
+def _cookies_to_netscape(cookies: list) -> str:
+    lines = ["# Netscape HTTP Cookie File"]
+    for c in cookies:
+        domain = c.get("domain", "")
+        path = c.get("path", "/")
+        secure = "TRUE" if c.get("secure") else "FALSE"
+        expires = int(c.get("expires") or 0)
+        name = c.get("name", "")
+        value = c.get("value", "")
+        include_subdomains = "TRUE" if domain.startswith(".") else "FALSE"
+        lines.append("\t".join([domain, include_subdomains, path, secure, str(expires), name, value]))
+    return "\n".join(lines) + "\n"
+
+
+def login_and_save_cookies() -> str:
+    try:
+        from getpass import getpass
+        from playwright.sync_api import sync_playwright
+    except Exception as e:
+        raise RuntimeError(
+            "Playwright est requis pour la connexion Steam. "
+            "Installe-le avec: pip install playwright && playwright install"
+        ) from e
+
+    username = input("Steam username: ").strip()
+    if not username:
+        raise RuntimeError("Username Steam vide.")
+    password = getpass("Steam password: ")
+    if not password:
+        raise RuntimeError("Mot de passe Steam vide.")
+
+    headless = os.environ.get("STEAM_HEADLESS", "").strip() == "1"
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=headless)
+        context = browser.new_context()
+        page = context.new_page()
+
+        page.goto("https://store.steampowered.com/login/", wait_until="domcontentloaded")
+        page.fill("input[name='username']", username)
+        page.fill("input[type='password']", password)
+        page.click("button[type='submit']")
+
+        # Handle Steam Guard if prompted.
+        try:
+            page.wait_for_timeout(1500)
+            guard_selectors = [
+                "input[name='steamguardcode']",
+                "input[name='authcode']",
+                "input[name='emailauth']",
+            ]
+            for sel in guard_selectors:
+                if page.locator(sel).count() > 0:
+                    code = input("Steam Guard code: ").strip()
+                    if code:
+                        page.fill(sel, code)
+                        page.click("button[type='submit']")
+                    break
+        except Exception:
+            pass
+
+        # Wait for login to settle, then grab SteamID64.
+        page.goto("https://steamcommunity.com/my/", wait_until="domcontentloaded")
+        page.wait_for_timeout(1500)
+        html = page.content()
+        steamid64 = _extract_steamid64(html)
+        if not steamid64 and not headless:
+            input("Termine la connexion dans la fenetre, puis appuie sur Entree...")
+            page.goto("https://steamcommunity.com/my/", wait_until="domcontentloaded")
+            page.wait_for_timeout(1500)
+            html = page.content()
+            steamid64 = _extract_steamid64(html)
+        if not steamid64:
+            browser.close()
+            raise RuntimeError("Impossible de recuperer le SteamID64. Connexion echouee ?")
+
+        cookies = context.cookies()
+        cookies_text = _cookies_to_netscape(cookies)
+        Path(COOKIES_FILE).write_text(cookies_text, encoding="utf-8")
+
+        browser.close()
+
+    settings = load_settings()
+    settings["steamid64"] = steamid64
+    save_settings(settings)
+    print(f"[login] SteamID64 detecte: {steamid64}")
+    print(f"[login] Cookies sauvegardes: {COOKIES_FILE}")
+    return steamid64
+
 # ---------------------------
 # Helpers
 # ---------------------------
@@ -131,6 +249,14 @@ def fetch_inventory_with_curl(steamid64: str, appid: int, context_id: int, count
         raise RuntimeError(f"Steam success!=1 pour appid={appid}: {data}")
 
     return data
+
+
+def ensure_login_if_needed(force: bool = False) -> str:
+    have_cookies = Path(COOKIES_FILE).exists()
+    steamid64 = get_steamid64()
+    if force or not have_cookies or not steamid64 or steamid64 == "CHANGE_ME":
+        return login_and_save_cookies()
+    return steamid64
 
 
 def parse_inventory(inv_json: dict) -> Tuple[Set[str], Dict[str, Dict[str, Any]]]:
@@ -846,7 +972,7 @@ def serve_web() -> None:
 # ---------------------------
 # Main loop
 # ---------------------------
-def main():
+def main(steamid64: str):
     state = load_state()
 
     state.setdefault("games", {})
@@ -875,7 +1001,7 @@ def main():
             market_analysis: Dict[str, dict] = {k: v for k, v in (gstate.get("market_analysis", {}) or {}).items()}
 
             try:
-                inv = fetch_inventory_with_curl(STEAM_ID64, appid, context_id)
+                inv = fetch_inventory_with_curl(steamid64, appid, context_id)
                 asset_ids, asset_meta = parse_inventory(inv)
 
                 item_counts = {}
@@ -974,15 +1100,18 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--server", action="store_true", help="Run the web server on port 8181")
     parser.add_argument("--monitor", action="store_true", help="Run the inventory monitor loop")
+    parser.add_argument("--login", action="store_true", help="Force Steam login and refresh cookies.txt")
     args = parser.parse_args()
+
+    steamid64 = ensure_login_if_needed(force=args.login)
 
     if args.server and args.monitor:
         threading.Thread(target=serve_web, daemon=True).start()
-        main()
+        main(steamid64)
     elif args.server:
         serve_web()
         if UPDATE_EVENT.is_set():
             run_git_pull()
             restart_self()
     else:
-        main()
+        main(steamid64)
