@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# second teste
 import time
 import json
 import subprocess
