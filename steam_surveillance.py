@@ -196,6 +196,23 @@ def _wait_for_login_complete(page, timeout_s: int = 180) -> Optional[str]:
     return None
 
 
+def _human_click(locator, page) -> bool:
+    try:
+        locator.first.hover()
+        box = locator.first.bounding_box()
+        if box:
+            x = box["x"] + box["width"] * 0.5
+            y = box["y"] + box["height"] * 0.5
+            page.mouse.move(x, y, steps=12)
+            page.mouse.down()
+            time.sleep(0.08)
+            page.mouse.up()
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def login_and_save_cookies() -> str:
     try:
         from getpass import getpass
@@ -305,6 +322,7 @@ def login_and_save_cookies() -> str:
                                 )
                             except Exception:
                                 pass
+                    _human_click(submit, frame.page)
                     try:
                         frame.page.wait_for_load_state("domcontentloaded", timeout=15000)
                     except Exception:
