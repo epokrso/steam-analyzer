@@ -147,6 +147,20 @@ def _cookies_to_netscape(cookies: list) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _wait_for_steamid(page, timeout_s: int = 180) -> Optional[str]:
+    start = time.time()
+    while time.time() - start < timeout_s and not _interrupted():
+        try:
+            html = page.content()
+            steamid64 = _extract_steamid64(html)
+            if steamid64:
+                return steamid64
+        except Exception:
+            pass
+        time.sleep(1.0)
+    return None
+
+
 def login_and_save_cookies() -> str:
     try:
         from getpass import getpass
@@ -157,14 +171,14 @@ def login_and_save_cookies() -> str:
             "Installe-le avec: pip install playwright && playwright install"
         ) from e
 
-    username = input("Steam username: ").strip()
+    username = (os.environ.get("STEAM_USERNAME") or "").strip() or input("Steam username: ").strip()
     if not username:
         raise RuntimeError("Username Steam vide.")
-    password = getpass("Steam password: ")
+    password = (os.environ.get("STEAM_PASSWORD") or "").strip() or getpass("Steam password: ")
     if not password:
         raise RuntimeError("Mot de passe Steam vide.")
 
-    headless = os.environ.get("STEAM_HEADLESS", "").strip() == "1"
+    headless = os.environ.get("STEAM_HEADLESS", "").strip() != "0"
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless)
@@ -194,17 +208,17 @@ def login_and_save_cookies() -> str:
         except Exception:
             pass
 
-        # Wait for login to settle, then grab SteamID64.
+        # Wait for login / Steam Guard app approval to complete.
         page.goto("https://steamcommunity.com/my/", wait_until="domcontentloaded")
-        page.wait_for_timeout(1500)
-        html = page.content()
-        steamid64 = _extract_steamid64(html)
+        steamid64 = _wait_for_steamid(page, timeout_s=180)
+        if not steamid64:
+            # If mobile app approval is required, wait a bit longer.
+            print("[login] En attente de validation Steam Guard (appli)...")
+            steamid64 = _wait_for_steamid(page, timeout_s=180)
         if not steamid64 and not headless:
             input("Termine la connexion dans la fenetre, puis appuie sur Entree...")
             page.goto("https://steamcommunity.com/my/", wait_until="domcontentloaded")
-            page.wait_for_timeout(1500)
-            html = page.content()
-            steamid64 = _extract_steamid64(html)
+            steamid64 = _wait_for_steamid(page, timeout_s=120)
         if not steamid64:
             browser.close()
             raise RuntimeError("Impossible de recuperer le SteamID64. Connexion echouee ?")
