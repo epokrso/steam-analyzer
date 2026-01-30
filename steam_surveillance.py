@@ -10,6 +10,7 @@ import re
 import os
 import atexit
 import sys
+from collections import deque
 from pathlib import Path
 from typing import Dict, Set, Tuple, Optional, Any
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -37,6 +38,37 @@ BASE_DIR = Path(__file__).resolve().parent
 COOKIES_FILE = str(BASE_DIR / "cookies.txt")
 SETTINGS_FILE = BASE_DIR / "settings.json"
 STATE_FILE = BASE_DIR / "inventory_state.json"
+
+LOG_BUFFER = deque(maxlen=1000)
+_ORIG_STDOUT = sys.stdout
+_ORIG_STDERR = sys.stderr
+
+
+class _LogTee:
+    def __init__(self, stream):
+        self._stream = stream
+        self._buf = ""
+        self._lock = threading.Lock()
+
+    def write(self, s):
+        if not s:
+            return
+        with self._lock:
+            self._stream.write(s)
+            self._buf += s
+            while "\n" in self._buf:
+                line, self._buf = self._buf.split("\n", 1)
+                if line:
+                    LOG_BUFFER.append(line)
+
+    def flush(self):
+        with self._lock:
+            self._stream.flush()
+
+
+def _enable_log_capture():
+    sys.stdout = _LogTee(_ORIG_STDOUT)
+    sys.stderr = _LogTee(_ORIG_STDERR)
 
 # ---------------------------
 # HTTP session (Market only)
@@ -703,7 +735,7 @@ def save_state(state: dict) -> None:
 # ---------------------------
 # Market analysis
 # ---------------------------
-SELL_TURNOVER_THRESHOLD = 0.15  # 15% des listings vendus par jour = vendu rapidement
+SELL_TURNOVER_THRESHOLD = 0.008  # 0.8% des listings vendus par jour = vendu rapidement
 SELL_MIN_DAILY_SALES = 2
 
 
@@ -994,6 +1026,9 @@ INDEX_HTML = """<!doctype html>
     <button id="updateBtn" style="margin-top:8px;margin-left:8px;padding:6px 10px;border:1px solid #e4c9b8;border-radius:10px;background:#ffe6cf;cursor:pointer;">
       Mettre a jour
     </button>
+    <button id="consoleBtn" style="margin-top:8px;margin-left:8px;padding:6px 10px;border:1px solid #e4c9b8;border-radius:10px;background:#fff0f0;cursor:pointer;">
+      Console
+    </button>
   </header>
   <div class="grid">
     <section class="card">
@@ -1024,6 +1059,15 @@ INDEX_HTML = """<!doctype html>
       </table>
     </section>
   </div>
+  <section class="card" id="consoleCard" style="margin:0 20px 24px; display:none;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+      <h2 style="margin:0;">Console</h2>
+      <button id="clearConsoleBtn" style="padding:6px 10px;border:1px solid #e4c9b8;border-radius:10px;background:#fdf1dd;cursor:pointer;display:none;">
+        Clear console
+      </button>
+    </div>
+    <pre id="consoleLogs" style="height:260px;overflow:auto;background:#fffaf2;border:1px dashed #e4c9b8;border-radius:12px;padding:10px;font-size:12px;"></pre>
+  </section>
 <script>
   function euro(cents) {
     return (cents / 100).toFixed(2) + "€";
@@ -1128,6 +1172,43 @@ INDEX_HTML = """<!doctype html>
     await fetch("/update", { method: "POST" });
     alert("Mise a jour lancee. Le script va redemarrer.");
   });
+
+  let consoleVisible = false;
+  let consoleTimer = null;
+  const CONSOLE_MAX_LINES = 200;
+
+  async function refreshConsole() {
+    if (!consoleVisible) return;
+    const r = await fetch("/logs", { cache: "no-store" });
+    const data = await r.json();
+    const el = document.getElementById("consoleLogs");
+    const incoming = data.lines || [];
+    const lines = incoming.slice(-CONSOLE_MAX_LINES);
+    el.textContent = lines.join("\\n");
+    el.scrollTop = el.scrollHeight;
+  }
+
+  document.getElementById("consoleBtn").addEventListener("click", async () => {
+    consoleVisible = !consoleVisible;
+    document.getElementById("consoleCard").style.display = consoleVisible ? "block" : "none";
+    document.getElementById("clearConsoleBtn").style.display = consoleVisible ? "inline-block" : "none";
+    if (consoleVisible) {
+      await refreshConsole();
+      consoleTimer = setInterval(refreshConsole, 2000);
+    } else if (consoleTimer) {
+      clearInterval(consoleTimer);
+      consoleTimer = null;
+    }
+  });
+
+  document.getElementById("clearConsoleBtn").addEventListener("click", async () => {
+    document.getElementById("consoleLogs").textContent = "";
+    try {
+      await fetch("/logs/clear", { method: "POST" });
+    } catch (e) {
+      // ignore
+    }
+  });
 </script>
 </body>
 </html>
@@ -1150,6 +1231,15 @@ class Handler(BaseHTTPRequestHandler):
             state = load_state()
             payload = build_payload(state)
             body = json.dumps(payload).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if path == "/logs":
+            body = json.dumps({"lines": list(LOG_BUFFER)}).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
@@ -1188,12 +1278,22 @@ class Handler(BaseHTTPRequestHandler):
             if HTTPD is not None:
                 threading.Thread(target=HTTPD.shutdown, daemon=True).start()
             return
+        if path == "/logs/clear":
+            LOG_BUFFER.clear()
+            body = b"cleared"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         self.send_response(404)
         self.end_headers()
 
 
 def serve_web() -> None:
     global HTTPD
+    _enable_log_capture()
     HTTPD = HTTPServer(("0.0.0.0", 8181), Handler)
     print("Serving on http://0.0.0.0:8181")
     HTTPD.serve_forever()
