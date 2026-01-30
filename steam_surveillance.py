@@ -247,8 +247,9 @@ def login_and_save_cookies() -> str:
         context = browser.new_context()
         page = context.new_page()
 
-        page.goto("https://steamcommunity.com/login/home/?goto=%2Fmy%2F", wait_until="domcontentloaded")
-        page.wait_for_timeout(2000)
+        try:
+            page.goto("https://steamcommunity.com/login/home/?goto=%2Fmy%2F", wait_until="domcontentloaded")
+            page.wait_for_timeout(2000)
 
         def fill_in_frame(frame) -> bool:
             try:
@@ -391,27 +392,38 @@ def login_and_save_cookies() -> str:
         if not filled:
             print("[login] Impossible de remplir les champs automatiquement. Essaie en mode UI.")
 
-        # Wait for login / Steam Guard app approval to complete.
-        steamid64 = _wait_for_login_complete(page, timeout_s=180)
-        if not steamid64:
-            print("[login] En attente de validation Steam Guard (appli)...")
+            # Wait for login / Steam Guard app approval to complete.
             steamid64 = _wait_for_login_complete(page, timeout_s=180)
-        if not steamid64:
-            page.goto("https://steamcommunity.com/my/", wait_until="domcontentloaded")
-            steamid64 = _wait_for_steamid(page, timeout_s=60)
-        if not steamid64 and not headless:
-            input("Termine la connexion dans la fenetre, puis appuie sur Entree...")
-            page.goto("https://steamcommunity.com/my/", wait_until="domcontentloaded")
-            steamid64 = _wait_for_steamid(page, timeout_s=120)
-        if not steamid64:
-            browser.close()
-            raise RuntimeError("Impossible de recuperer le SteamID64. Connexion echouee ?")
+            if not steamid64:
+                print("[login] En attente de validation Steam Guard (appli)...")
+                steamid64 = _wait_for_login_complete(page, timeout_s=180)
+            if not steamid64:
+                page.goto("https://steamcommunity.com/my/", wait_until="domcontentloaded")
+                steamid64 = _wait_for_steamid(page, timeout_s=60)
+            if not steamid64 and not headless:
+                input("Termine la connexion dans la fenetre, puis appuie sur Entree...")
+                page.goto("https://steamcommunity.com/my/", wait_until="domcontentloaded")
+                steamid64 = _wait_for_steamid(page, timeout_s=120)
+            if not steamid64:
+                raise RuntimeError("Impossible de recuperer le SteamID64. Connexion echouee ?")
 
-        cookies = context.cookies()
-        cookies_text = _cookies_to_netscape(cookies)
-        Path(COOKIES_FILE).write_text(cookies_text, encoding="utf-8")
-
-        browser.close()
+            cookies = context.cookies()
+            cookies_text = _cookies_to_netscape(cookies)
+            Path(COOKIES_FILE).write_text(cookies_text, encoding="utf-8")
+        finally:
+            try:
+                page.close()
+            except Exception:
+                pass
+            try:
+                context.close()
+            except Exception:
+                pass
+            try:
+                browser.close()
+            except Exception:
+                pass
+            print("[login] Session Playwright fermee")
 
     settings = load_settings()
     settings["steamid64"] = steamid64
