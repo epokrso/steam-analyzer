@@ -10,6 +10,7 @@ import re
 import os
 import atexit
 import sys
+import ssl
 from pathlib import Path
 from typing import Dict, Set, Tuple, Optional, Any
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -36,6 +37,8 @@ BASE_DIR = Path(__file__).resolve().parent
 COOKIES_FILE = str(BASE_DIR / "cookies.txt")
 SETTINGS_FILE = BASE_DIR / "settings.json"
 STATE_FILE = BASE_DIR / "inventory_state.json"
+CERT_FILE = str(BASE_DIR / "selfsigned.crt")
+KEY_FILE = str(BASE_DIR / "selfsigned.key")
 
 # ---------------------------
 # HTTP session (Market only)
@@ -1198,6 +1201,44 @@ def serve_web() -> None:
     HTTPD.serve_forever()
 
 
+def ensure_self_signed_cert(cert_path: str, key_path: str) -> None:
+    if Path(cert_path).exists() and Path(key_path).exists():
+        return
+    cmd = [
+        "openssl",
+        "req",
+        "-x509",
+        "-newkey",
+        "rsa:2048",
+        "-nodes",
+        "-keyout",
+        key_path,
+        "-out",
+        cert_path,
+        "-days",
+        "365",
+        "-subj",
+        "/CN=localhost",
+    ]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError(
+            "Impossible de generer le certificat auto-signe. "
+            "Installe openssl ou specifie --cert/--key. "
+            f"Erreur: {r.stderr.strip()}"
+        )
+
+
+def serve_web_https(cert_path: str, key_path: str) -> None:
+    global HTTPD
+    HTTPD = HTTPServer(("0.0.0.0", 8181), Handler)
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.load_cert_chain(certfile=cert_path, keyfile=key_path)
+    HTTPD.socket = ctx.wrap_socket(HTTPD.socket, server_side=True)
+    print("Serving on https://0.0.0.0:8181")
+    HTTPD.serve_forever()
+
+
 # ---------------------------
 # Main loop
 # ---------------------------
@@ -1330,15 +1371,30 @@ if __name__ == "__main__":
     parser.add_argument("--server", action="store_true", help="Run the web server on port 8181")
     parser.add_argument("--monitor", action="store_true", help="Run the inventory monitor loop")
     parser.add_argument("--login", action="store_true", help="Force Steam login and refresh cookies.txt")
+    parser.add_argument("--http", action="store_true", help="Serve HTTP (default is HTTPS)")
+    parser.add_argument("--cert", default=None, help="Path to SSL certificate (PEM)")
+    parser.add_argument("--key", default=None, help="Path to SSL private key (PEM)")
     args = parser.parse_args()
 
     steamid64 = ensure_login_if_needed(force=args.login)
 
     if args.server and args.monitor:
-        threading.Thread(target=serve_web, daemon=True).start()
+        if args.http:
+            threading.Thread(target=serve_web, daemon=True).start()
+        else:
+            cert_path = args.cert or CERT_FILE
+            key_path = args.key or KEY_FILE
+            ensure_self_signed_cert(cert_path, key_path)
+            threading.Thread(target=lambda: serve_web_https(cert_path, key_path), daemon=True).start()
         main(steamid64)
     elif args.server:
-        serve_web()
+        if args.http:
+            serve_web()
+        else:
+            cert_path = args.cert or CERT_FILE
+            key_path = args.key or KEY_FILE
+            ensure_self_signed_cert(cert_path, key_path)
+            serve_web_https(cert_path, key_path)
         if UPDATE_EVENT.is_set():
             run_git_pull()
             restart_self()
