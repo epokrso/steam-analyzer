@@ -12,11 +12,14 @@ import atexit
 import sys
 import ssl
 from collections import deque
+import hashlib
+import hmac
+import secrets
 from pathlib import Path
 from typing import Dict, Set, Tuple, Optional, Any
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
-from urllib.parse import quote
+from urllib.parse import quote, parse_qs
 from html import unescape
 from http.cookiejar import MozillaCookieJar
 
@@ -44,6 +47,41 @@ KEY_FILE = str(BASE_DIR / "selfsigned.key")
 LOG_BUFFER = deque(maxlen=1000)
 _ORIG_STDOUT = sys.stdout
 _ORIG_STDERR = sys.stderr
+SESSIONS = set()
+
+LOGIN_HTML = """<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Connexion</title>
+  <style>
+    body { font-family: "Libre Baskerville","Georgia",serif; background:#f6f1e7; color:#231f20; }
+    .card { max-width:420px; margin:8vh auto; background:#fff7ec; border:1px solid #e9d7c6;
+      border-radius:16px; padding:18px; box-shadow:0 6px 18px rgba(0,0,0,.08); }
+    h1 { margin:0 0 12px; font-size:22px; }
+    label { display:block; margin:10px 0 6px; font-size:14px; }
+    input { width:100%; padding:8px 10px; border:1px solid #e4c9b8; border-radius:8px; }
+    button { margin-top:12px; padding:8px 12px; border:1px solid #e4c9b8; border-radius:10px;
+      background:#ffe6cf; cursor:pointer; }
+    .muted { color:#6f5f54; font-size:12px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>%TITLE%</h1>
+    <form method="post" action="/login">
+      <label>Utilisateur</label>
+      <input name="username" autocomplete="username" required />
+      <label>Mot de passe</label>
+      <input name="password" type="password" autocomplete="current-password" required />
+      <button type="submit">%BUTTON%</button>
+    </form>
+    <div class="muted">%HELP%</div>
+  </div>
+</body>
+</html>
+"""
 
 
 class _LogTee:
@@ -68,6 +106,36 @@ class _LogTee:
 def _enable_log_capture():
     sys.stdout = _LogTee(_ORIG_STDOUT)
     sys.stderr = _LogTee(_ORIG_STDERR)
+
+
+def _hash_password(password: str, salt: str) -> str:
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 120_000)
+    return dk.hex()
+
+
+def _get_web_auth() -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    settings = load_settings()
+    return settings.get("web_user"), settings.get("web_pass_hash"), settings.get("web_pass_salt")
+
+
+def _set_web_auth(username: str, password: str) -> None:
+    salt = secrets.token_hex(16)
+    pw_hash = _hash_password(password, salt)
+    settings = load_settings()
+    settings["web_user"] = username
+    settings["web_pass_hash"] = pw_hash
+    settings["web_pass_salt"] = salt
+    save_settings(settings)
+
+
+def _check_auth_cookie(headers) -> bool:
+    cookie = headers.get("Cookie") or ""
+    for part in cookie.split(";"):
+        part = part.strip()
+        if part.startswith("auth="):
+            token = part.split("=", 1)[1]
+            return token in SESSIONS
+    return False
 
 # ---------------------------
 # HTTP session (Market only)
@@ -1219,6 +1287,31 @@ INDEX_HTML = """<!doctype html>
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path
+        if path == "/login":
+            user, pw_hash, pw_salt = _get_web_auth()
+            if user and pw_hash and pw_salt:
+                title = "Connexion"
+                button = "Se connecter"
+                help_text = "Acces protege."
+            else:
+                title = "Creation du compte"
+                button = "Creer"
+                help_text = "Definis un utilisateur et mot de passe."
+            body = LOGIN_HTML.replace("%TITLE%", title).replace("%BUTTON%", button).replace("%HELP%", help_text)
+            body = body.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if not _check_auth_cookie(self.headers):
+            self.send_response(302)
+            self.send_header("Location", "/login")
+            self.end_headers()
+            return
+
         if path == "/":
             body = INDEX_HTML.encode("utf-8")
             self.send_response(200)
@@ -1254,6 +1347,40 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
+        if path == "/login":
+            length = int(self.headers.get("Content-Length", "0") or 0)
+            raw = self.rfile.read(length).decode("utf-8", errors="ignore")
+            form = parse_qs(raw)
+            username = (form.get("username", [""])[0] or "").strip()
+            password = (form.get("password", [""])[0] or "").strip()
+            if not username or not password:
+                self.send_response(400)
+                self.end_headers()
+                return
+
+            user, pw_hash, pw_salt = _get_web_auth()
+            if not user or not pw_hash or not pw_salt:
+                _set_web_auth(username, password)
+                user, pw_hash, pw_salt = _get_web_auth()
+
+            calc = _hash_password(password, pw_salt or "")
+            if user == username and hmac.compare_digest(calc, pw_hash or ""):
+                token = secrets.token_hex(24)
+                SESSIONS.add(token)
+                self.send_response(302)
+                self.send_header("Set-Cookie", f"auth={token}; HttpOnly; SameSite=Strict")
+                self.send_header("Location", "/")
+                self.end_headers()
+                return
+
+            self.send_response(401)
+            self.end_headers()
+            return
+
+        if not _check_auth_cookie(self.headers):
+            self.send_response(401)
+            self.end_headers()
+            return
         if path == "/stop":
             body = b"stopping"
             self.send_response(200)
