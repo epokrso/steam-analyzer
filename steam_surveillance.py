@@ -61,7 +61,7 @@ LOGIN_HTML = """<!doctype html>
       border-radius:16px; padding:18px; box-shadow:0 6px 18px rgba(0,0,0,.08); }
     h1 { margin:0 0 12px; font-size:22px; }
     label { display:block; margin:10px 0 6px; font-size:14px; }
-    input { width:100%; padding:8px 10px; border:1px solid #e4c9b8; border-radius:8px; }
+    input { width:100%; max-width:360px; padding:8px 10px; border:1px solid #e4c9b8; border-radius:8px; }
     input[type="checkbox"] { width:auto; padding:0; border:none; }
     button { margin-top:12px; padding:8px 12px; border:1px solid #e4c9b8; border-radius:10px;
       background:#ffe6cf; cursor:pointer; }
@@ -1322,7 +1322,7 @@ class Handler(BaseHTTPRequestHandler):
             if user and pw_hash and pw_salt:
                 title = "Connexion"
                 button = "Se connecter"
-                help_text = "Acces protege."
+                help_text = ""
             else:
                 title = "Creation du compte"
                 button = "Creer"
