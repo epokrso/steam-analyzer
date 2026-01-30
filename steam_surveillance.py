@@ -31,6 +31,7 @@ STEAM_ID64 = "76561199300997500"
 GAMES = {
     2923300: {"name": "Banana", "context_id": 2},
     3419430: {"name": "Bongo Cat", "context_id": 2},
+    730: {"name": "CounterStrick 2", "context_id": 2},
 }
 
 CURRENCY = 3         # 3 = EUR
