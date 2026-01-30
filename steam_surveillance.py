@@ -75,6 +75,10 @@ LOGIN_HTML = """<!doctype html>
       <input name="username" autocomplete="username" required />
       <label>Mot de passe</label>
       <input name="password" type="password" autocomplete="current-password" required />
+      <label style="margin-top:10px;display:flex;gap:8px;align-items:center;">
+        <input type="checkbox" name="remember" />
+        Se souvenir de moi
+      </label>
       <button type="submit">%BUTTON%</button>
     </form>
     <div class="muted">%HELP%</div>
@@ -136,6 +140,15 @@ def _check_auth_cookie(headers) -> bool:
             token = part.split("=", 1)[1]
             return token in SESSIONS
     return False
+
+
+def _clear_web_auth() -> None:
+    settings = load_settings()
+    settings.pop("web_user", None)
+    settings.pop("web_pass_hash", None)
+    settings.pop("web_pass_salt", None)
+    save_settings(settings)
+    SESSIONS.clear()
 
 # ---------------------------
 # HTTP session (Market only)
@@ -1096,6 +1109,9 @@ INDEX_HTML = """<!doctype html>
     <button id="consoleBtn" style="margin-top:8px;margin-left:8px;padding:6px 10px;border:1px solid #e4c9b8;border-radius:10px;background:#fff0f0;cursor:pointer;">
       Console
     </button>
+    <button id="logoutBtn" style="margin-top:8px;margin-left:8px;padding:6px 10px;border:1px solid #e4c9b8;border-radius:10px;background:#f5e2e2;cursor:pointer;">
+      Logout
+    </button>
   </header>
   <div class="grid">
     <section class="card">
@@ -1278,6 +1294,11 @@ INDEX_HTML = """<!doctype html>
       // ignore
     }
   });
+
+  document.getElementById("logoutBtn").addEventListener("click", async () => {
+    await fetch("/logout", { method: "POST" });
+    window.location.href = "/login";
+  });
 </script>
 </body>
 </html>
@@ -1353,6 +1374,7 @@ class Handler(BaseHTTPRequestHandler):
             form = parse_qs(raw)
             username = (form.get("username", [""])[0] or "").strip()
             password = (form.get("password", [""])[0] or "").strip()
+            remember = (form.get("remember", [""])[0] or "").strip() != ""
             if not username or not password:
                 self.send_response(400)
                 self.end_headers()
@@ -1368,7 +1390,10 @@ class Handler(BaseHTTPRequestHandler):
                 token = secrets.token_hex(24)
                 SESSIONS.add(token)
                 self.send_response(302)
-                self.send_header("Set-Cookie", f"auth={token}; HttpOnly; SameSite=Strict")
+                if remember:
+                    self.send_header("Set-Cookie", f"auth={token}; HttpOnly; SameSite=Strict; Max-Age=2592000")
+                else:
+                    self.send_header("Set-Cookie", f"auth={token}; HttpOnly; SameSite=Strict")
                 self.send_header("Location", "/")
                 self.end_headers()
                 return
@@ -1410,6 +1435,21 @@ class Handler(BaseHTTPRequestHandler):
             LOG_BUFFER.clear()
             body = b"cleared"
             self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if path == "/logout":
+            cookie = self.headers.get("Cookie") or ""
+            for part in cookie.split(";"):
+                part = part.strip()
+                if part.startswith("auth="):
+                    token = part.split("=", 1)[1]
+                    SESSIONS.discard(token)
+            body = b"logout"
+            self.send_response(200)
+            self.send_header("Set-Cookie", "auth=; Max-Age=0; HttpOnly; SameSite=Strict")
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
@@ -1601,7 +1641,12 @@ if __name__ == "__main__":
     parser.add_argument("--http", action="store_true", help="Serve HTTP (default is HTTPS)")
     parser.add_argument("--cert", default=None, help="Path to SSL certificate (PEM)")
     parser.add_argument("--key", default=None, help="Path to SSL private key (PEM)")
+    parser.add_argument("--reset-web-auth", action="store_true", help="Reset web UI login credentials")
     args = parser.parse_args()
+
+    if args.reset_web_auth:
+        _clear_web_auth()
+        print("[web] Web auth reset.")
 
     steamid64 = ensure_login_if_needed(force=args.login)
 
