@@ -1,6 +1,6 @@
 # Steam Analyzer (Steam Surveillance)
 
-Ce script surveille automatiquement l'inventaire Steam de ton compte, estime la valeur des items, et propose une analyse de marché (items interéssant a vendre ou pas).  
+Ce script surveille automatiquement l'inventaire Steam de ton compte, estime la valeur des items, et propose une analyse de marché (items interessant a vendre ou pas).  
 Il embarque aussi un mini serveur web pour visualiser les données en temps réel.
 Je suis ouvert à toutes propositions d'améliorations
 
@@ -9,8 +9,11 @@ Je suis ouvert à toutes propositions d'améliorations
 - Estimation de la valeur totale (prix Steam Market)
 - Détection des nouveaux items
 - Analyse du marché (turnover + prix recommandé)
-- Interface web simple (port 8181)
+- Interface web simple (port 8181) avec HTTPS auto‑signé par défaut
+- Connexion web obligatoire (utilisateur + mot de passe)
+- Console web intégrée (logs + bouton clear)
 - Gestion des cookies Steam (login automatisé)
+- Compatible Windows (requêtes inventaire via `requests`)
 
 ## Prérequis
 - Python 3.9+
@@ -30,27 +33,32 @@ Les jeux suivis sont définis en haut du fichier `steam_surveillance.py` :
 - `CURRENCY`, `LANGUAGE`, `POLL_SECONDS`
 
 ## Utilisation
-- Lancer le script avec python3 `steam_surveillance.py --server --monitor`
-- au premier lancement il vous sera demandé les identifiants Steam pour pouvoir vous connecter au compte que vous voulez surveiller (le script est fait pour fonctionner via une validation Steam Guard sur un autre appareil)
-- Apres la verification passer il cree un fichier cookies.txt et settings.json 
-- Le serveur va commencer à lister les items du jeu que vous avez configurés et apparaîtront sur le serveur web une fois la liste terminée
-- Le serveur est directement accessible via https://localhost:8181
+- Lancer le script avec `python3 steam_surveillance.py --server --monitor`
+- Au premier lancement il vous sera demandé les identifiants Steam pour pouvoir vous connecter au compte que vous voulez surveiller (validation Steam Guard sur un autre appareil)
+- Apres la verification, il cree `cookies.txt` et `settings.json`
+- Le serveur commence a lister les items du jeu configures et apparaitront sur le serveur web une fois la liste terminee
+- Le serveur est accessible via https://localhost:8181
+
+### Options utiles
+- Forcer HTTP (au lieu de HTTPS) : `--http`
+- Forcer regeneration cookies Steam : `--login`
+- Reset le compte web : `--reset-web-auth`
 
 ## Comment ça marche
-- Le script se connecte à Steam ( via Playwright), récupère les cookies et le SteamID64.
-- Les cookies sont utilisés pour interroger l’inventaire via `curl`.
+- Le script se connecte à Steam (via Playwright), récupère les cookies et le SteamID64.
+- Les cookies sont utilisés pour interroger l’inventaire via `requests`.
 - Le Market est consulté via `requests` + Playwright (HTML listings).
 - Les données sont stockées localement et affichées via un mini serveur web.
 
 ## Fichiers générés
-- `cookies.txt` : session Steam (fichier extrememement sensible ne le partager jamais !!!)
+- `cookies.txt` : session Steam (fichier extremement sensible, ne le partage jamais)
 - `settings.json` : SteamID64
 - `inventory_state.json` : historique local
 
 
 ## Dépannage
 Si la connexion bloque:
-- Lance en mode UI (`STEAM_HEADLESS=0 steam_surveillance.py --server --monitor`)
+- Lance en mode UI (`STEAM_HEADLESS=0 python3 steam_surveillance.py --server --monitor`)
 - Relance `--login` si besoin (recréé les fichiers de connexion)
 
 ## Licence
