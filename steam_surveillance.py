@@ -16,6 +16,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 from urllib.parse import quote
 from html import unescape
+from http.cookiejar import MozillaCookieJar
 
 # ---------------------------
 # CONFIG
@@ -43,6 +44,15 @@ session = requests.Session()
 session.headers.update({
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                   "(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+})
+
+# Inventory session (uses cookies.txt in Netscape format)
+inv_session = requests.Session()
+inv_session.headers.update({
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9,fr;q=0.8",
 })
 
 MARKET_MIN_DELAY = 3.5   # secondes entre 2 requêtes Market
@@ -415,26 +425,23 @@ def login_and_save_cookies() -> str:
 # ---------------------------
 def fetch_inventory_with_curl(steamid64: str, appid: int, context_id: int, count: int = 2000) -> dict:
     url = f"https://steamcommunity.com/inventory/{steamid64}/{appid}/{context_id}?l={LANGUAGE}&count={count}"
+    if not Path(COOKIES_FILE).exists():
+        raise RuntimeError(f"Cookies manquants: {COOKIES_FILE}")
 
-    cmd = [
-        "curl",
-        "-sL",
-        "--compressed",
-        "-b", COOKIES_FILE,
-        "-H", "Accept: application/json, text/plain, */*",
-        "-H", "Accept-Language: en-US,en;q=0.9,fr;q=0.8",
-        "-H", f"Referer: https://steamcommunity.com/profiles/{steamid64}/inventory/",
-        "-H", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-              "(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-        url
-    ]
+    jar = MozillaCookieJar(COOKIES_FILE)
+    try:
+        jar.load(ignore_discard=True, ignore_expires=True)
+    except Exception as e:
+        raise RuntimeError(f"Impossible de lire {COOKIES_FILE}: {e}") from e
+    inv_session.cookies = jar
 
-    r = subprocess.run(cmd, capture_output=True, text=True)
-
-    if r.returncode != 0:
-        raise RuntimeError(f"curl error (code {r.returncode}): {r.stderr.strip()}")
-
-    body = (r.stdout or "").strip()
+    r = inv_session.get(
+        url,
+        headers={"Referer": f"https://steamcommunity.com/profiles/{steamid64}/inventory/"},
+        timeout=20,
+    )
+    r.raise_for_status()
+    body = (r.text or "").strip()
 
     # Steam peut renvoyer "null" ou HTML si cookies invalides
     if not body.startswith("{"):
