@@ -72,16 +72,17 @@ LOGIN_HTML = """<!doctype html>
     <h1>%TITLE%</h1>
     <form method="post" action="/login">
       <label>Utilisateur</label>
-      <input name="username" autocomplete="username" required />
+      <input name="username" autocomplete="username" value="%USERNAME%" required />
       <label>Mot de passe</label>
       <input name="password" type="password" autocomplete="current-password" required />
       <label style="margin-top:10px;display:flex;gap:8px;align-items:center;">
         <input type="checkbox" name="remember" />
-        Se souvenir de moi
+        <span>Se souvenir de moi</span>
       </label>
       <button type="submit">%BUTTON%</button>
     </form>
     <div class="muted">%HELP%</div>
+    <div style="color:#b24a4a;margin-top:8px;">%ERROR%</div>
   </div>
 </body>
 </html>
@@ -92,19 +93,22 @@ class _LogTee:
     def __init__(self, stream):
         self._stream = stream
         self._buf = ""
+        self._lock = threading.Lock()
 
     def write(self, s):
         if not s:
             return
-        self._stream.write(s)
-        self._buf += s
-        while "\n" in self._buf:
-            line, self._buf = self._buf.split("\n", 1)
-            if line:
-                LOG_BUFFER.append(line)
+        with self._lock:
+            self._stream.write(s)
+            self._buf += s
+            while "\n" in self._buf:
+                line, self._buf = self._buf.split("\n", 1)
+                if line:
+                    LOG_BUFFER.append(line)
 
     def flush(self):
-        self._stream.flush()
+        with self._lock:
+            self._stream.flush()
 
 
 def _enable_log_capture():
@@ -1307,9 +1311,13 @@ INDEX_HTML = """<!doctype html>
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
         if path == "/login":
             user, pw_hash, pw_salt = _get_web_auth()
+            qs = parse_qs(parsed.query)
+            error = (qs.get("error", [""])[0] or "").strip()
+            username_prefill = (qs.get("u", [""])[0] or "").strip()
             if user and pw_hash and pw_salt:
                 title = "Connexion"
                 button = "Se connecter"
@@ -1318,7 +1326,13 @@ class Handler(BaseHTTPRequestHandler):
                 title = "Creation du compte"
                 button = "Creer"
                 help_text = "Definis un utilisateur et mot de passe."
-            body = LOGIN_HTML.replace("%TITLE%", title).replace("%BUTTON%", button).replace("%HELP%", help_text)
+            body = (
+                LOGIN_HTML.replace("%TITLE%", title)
+                .replace("%BUTTON%", button)
+                .replace("%HELP%", help_text)
+                .replace("%ERROR%", error)
+                .replace("%USERNAME%", username_prefill)
+            )
             body = body.encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -1376,7 +1390,8 @@ class Handler(BaseHTTPRequestHandler):
             password = (form.get("password", [""])[0] or "").strip()
             remember = (form.get("remember", [""])[0] or "").strip() != ""
             if not username or not password:
-                self.send_response(400)
+                self.send_response(302)
+                self.send_header("Location", "/login?error=Champs+invalides&u=" + quote(username))
                 self.end_headers()
                 return
 
@@ -1398,7 +1413,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 return
 
-            self.send_response(401)
+            self.send_response(302)
+            self.send_header("Location", "/login?error=Identifiants+invalides&u=" + quote(username))
             self.end_headers()
             return
 
