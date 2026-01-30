@@ -9,8 +9,7 @@ Je suis ouvert à toutes propositions d'améliorations
 - Estimation de la valeur totale (prix Steam Market)
 - Détection des nouveaux items
 - Analyse du marché (turnover + prix recommandé)
-- Interface web simple (port 8181) avec HTTPS auto‑signé par défaut
-- Connexion web obligatoire (utilisateur + mot de passe)
+- Interface web simple (port 8181)
 - Console web intégrée (logs + bouton clear)
 - Gestion des cookies Steam (login automatisé)
 - Compatible Windows (requêtes inventaire via `requests`)
@@ -37,12 +36,10 @@ Les jeux suivis sont définis en haut du fichier `steam_surveillance.py` :
 - Au premier lancement il vous sera demandé les identifiants Steam pour pouvoir vous connecter au compte que vous voulez surveiller (validation Steam Guard sur un autre appareil)
 - Apres la verification, il cree `cookies.txt` et `settings.json`
 - Le serveur commence a lister les items du jeu configures et apparaitront sur le serveur web une fois la liste terminee
-- Le serveur est accessible via https://localhost:8181
+- Le serveur est accessible via http://localhost:8181
 
-### Options utiles
-- Forcer HTTP (au lieu de HTTPS) : `--http`
+### Option utile
 - Forcer regeneration cookies Steam : `--login`
-- Reset le compte web : `--reset-web-auth`
 
 ## Comment ça marche
 - Le script se connecte à Steam (via Playwright), récupère les cookies et le SteamID64.
