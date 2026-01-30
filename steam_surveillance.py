@@ -10,16 +10,11 @@ import re
 import os
 import atexit
 import sys
-import ssl
-from collections import deque
-import hashlib
-import hmac
-import secrets
 from pathlib import Path
 from typing import Dict, Set, Tuple, Optional, Any
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
-from urllib.parse import quote, parse_qs
+from urllib.parse import quote
 from html import unescape
 from http.cookiejar import MozillaCookieJar
 
@@ -42,121 +37,6 @@ BASE_DIR = Path(__file__).resolve().parent
 COOKIES_FILE = str(BASE_DIR / "cookies.txt")
 SETTINGS_FILE = BASE_DIR / "settings.json"
 STATE_FILE = BASE_DIR / "inventory_state.json"
-CERT_FILE = str(BASE_DIR / "selfsigned.crt")
-KEY_FILE = str(BASE_DIR / "selfsigned.key")
-
-LOG_BUFFER = deque(maxlen=1000)
-_ORIG_STDOUT = sys.stdout
-_ORIG_STDERR = sys.stderr
-SESSIONS = set()
-
-LOGIN_HTML = """<!doctype html>
-<html lang="fr">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Connexion</title>
-  <style>
-    body { font-family: "Libre Baskerville","Georgia",serif; background:#f6f1e7; color:#231f20; }
-    .card { max-width:420px; margin:8vh auto; background:#fff7ec; border:1px solid #e9d7c6;
-      border-radius:16px; padding:18px; box-shadow:0 6px 18px rgba(0,0,0,.08); }
-    h1 { margin:0 0 12px; font-size:22px; }
-    label { display:block; margin:10px 0 6px; font-size:14px; }
-    input { width:100%; max-width:360px; padding:8px 10px; border:1px solid #e4c9b8; border-radius:8px; }
-    input[type="checkbox"] { width:auto; padding:0; border:none; }
-    button { margin-top:12px; padding:8px 12px; border:1px solid #e4c9b8; border-radius:10px;
-      background:#ffe6cf; cursor:pointer; }
-    .muted { color:#6f5f54; font-size:12px; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h1>%TITLE%</h1>
-    <form method="post" action="/login">
-      <label>Utilisateur</label>
-      <input name="username" autocomplete="username" value="%USERNAME%" required />
-      <label>Mot de passe</label>
-      <input name="password" type="password" autocomplete="current-password" required />
-      <button type="submit">%BUTTON%</button>
-    </form>
-    <div class="muted">%HELP%</div>
-    <div style="color:#b24a4a;margin-top:8px;">%ERROR%</div>
-  </div>
-</body>
-</html>
-"""
-
-
-class _LogTee:
-    def __init__(self, stream):
-        self._stream = stream
-        self._buf = ""
-        self._lock = threading.Lock()
-
-    def write(self, s):
-        if not s:
-            return
-        with self._lock:
-            self._stream.write(s)
-            self._buf += s
-            while "\n" in self._buf:
-                line, self._buf = self._buf.split("\n", 1)
-                if line:
-                    LOG_BUFFER.append(line)
-
-    def flush(self):
-        with self._lock:
-            self._stream.flush()
-
-
-def _enable_log_capture():
-    sys.stdout = _LogTee(_ORIG_STDOUT)
-    sys.stderr = _LogTee(_ORIG_STDERR)
-
-
-def _hash_password(password: str, salt: str) -> str:
-    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 120_000)
-    return dk.hex()
-
-
-def _get_web_auth() -> Tuple[Optional[str], Optional[str], Optional[str]]:
-    settings = load_settings()
-    return settings.get("web_user"), settings.get("web_pass_hash"), settings.get("web_pass_salt")
-
-
-def _set_web_auth(username: str, password: str) -> None:
-    salt = secrets.token_hex(16)
-    pw_hash = _hash_password(password, salt)
-    settings = load_settings()
-    settings["web_user"] = username
-    settings["web_pass_hash"] = pw_hash
-    settings["web_pass_salt"] = salt
-    save_settings(settings)
-
-
-def _get_auth_cookie(headers) -> Optional[str]:
-    cookie = headers.get("Cookie") or ""
-    for part in cookie.split(";"):
-        part = part.strip()
-        if part.startswith("auth="):
-            return part.split("=", 1)[1]
-    return None
-
-
-def _check_auth_cookie(headers) -> bool:
-    token = _get_auth_cookie(headers)
-    if not token:
-        return False
-    return token in SESSIONS
-
-
-def _clear_web_auth() -> None:
-    settings = load_settings()
-    settings.pop("web_user", None)
-    settings.pop("web_pass_hash", None)
-    settings.pop("web_pass_salt", None)
-    save_settings(settings)
-    SESSIONS.clear()
 
 # ---------------------------
 # HTTP session (Market only)
@@ -823,7 +703,7 @@ def save_state(state: dict) -> None:
 # ---------------------------
 # Market analysis
 # ---------------------------
-SELL_TURNOVER_THRESHOLD = 0.008  # 0.8% des listings vendus par jour = vendu rapidement
+SELL_TURNOVER_THRESHOLD = 0.15  # 15% des listings vendus par jour = vendu rapidement
 SELL_MIN_DAILY_SALES = 2
 
 
@@ -1114,12 +994,6 @@ INDEX_HTML = """<!doctype html>
     <button id="updateBtn" style="margin-top:8px;margin-left:8px;padding:6px 10px;border:1px solid #e4c9b8;border-radius:10px;background:#ffe6cf;cursor:pointer;">
       Mettre a jour
     </button>
-    <button id="consoleBtn" style="margin-top:8px;margin-left:8px;padding:6px 10px;border:1px solid #e4c9b8;border-radius:10px;background:#fff0f0;cursor:pointer;">
-      Console
-    </button>
-    <button id="logoutBtn" style="margin-top:8px;margin-left:8px;padding:6px 10px;border:1px solid #e4c9b8;border-radius:10px;background:#f5e2e2;cursor:pointer;">
-      Logout
-    </button>
   </header>
   <div class="grid">
     <section class="card">
@@ -1150,15 +1024,6 @@ INDEX_HTML = """<!doctype html>
       </table>
     </section>
   </div>
-  <section class="card" id="consoleCard" style="margin:0 20px 24px; display:none;">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
-      <h2 style="margin:0;">Console</h2>
-      <button id="clearConsoleBtn" style="padding:6px 10px;border:1px solid #e4c9b8;border-radius:10px;background:#fdf1dd;cursor:pointer;display:none;">
-        Clear console
-      </button>
-    </div>
-    <pre id="consoleLogs" style="height:260px;overflow:auto;background:#fffaf2;border:1px dashed #e4c9b8;border-radius:12px;padding:10px;font-size:12px;"></pre>
-  </section>
 <script>
   function euro(cents) {
     return (cents / 100).toFixed(2) + "€";
@@ -1263,50 +1128,6 @@ INDEX_HTML = """<!doctype html>
     await fetch("/update", { method: "POST" });
     alert("Mise a jour lancee. Le script va redemarrer.");
   });
-
-  let consoleVisible = false;
-  let consoleTimer = null;
-  let consoleLines = [];
-  const CONSOLE_MAX_LINES = 200;
-
-  async function refreshConsole() {
-    if (!consoleVisible) return;
-    const r = await fetch("/logs", { cache: "no-store" });
-    const data = await r.json();
-    const el = document.getElementById("consoleLogs");
-    const incoming = data.lines || [];
-    consoleLines = incoming.slice(-CONSOLE_MAX_LINES);
-    el.textContent = consoleLines.join("\\n");
-    el.scrollTop = el.scrollHeight;
-  }
-
-  document.getElementById("consoleBtn").addEventListener("click", async () => {
-    consoleVisible = !consoleVisible;
-    document.getElementById("consoleCard").style.display = consoleVisible ? "block" : "none";
-    document.getElementById("clearConsoleBtn").style.display = consoleVisible ? "inline-block" : "none";
-    if (consoleVisible) {
-      await refreshConsole();
-      consoleTimer = setInterval(refreshConsole, 2000);
-    } else if (consoleTimer) {
-      clearInterval(consoleTimer);
-      consoleTimer = null;
-    }
-  });
-
-  document.getElementById("clearConsoleBtn").addEventListener("click", async () => {
-    consoleLines = [];
-    document.getElementById("consoleLogs").textContent = "";
-    try {
-      await fetch("/logs/clear", { method: "POST" });
-    } catch (e) {
-      // ignore
-    }
-  });
-
-  document.getElementById("logoutBtn").addEventListener("click", async () => {
-    await fetch("/logout", { method: "POST" });
-    window.location.href = "/login";
-  });
 </script>
 </body>
 </html>
@@ -1315,43 +1136,7 @@ INDEX_HTML = """<!doctype html>
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        parsed = urlparse(self.path)
-        path = parsed.path
-        if path == "/login":
-            user, pw_hash, pw_salt = _get_web_auth()
-            qs = parse_qs(parsed.query)
-            error = (qs.get("error", [""])[0] or "").strip()
-            username_prefill = (qs.get("u", [""])[0] or "").strip()
-            if user and pw_hash and pw_salt:
-                title = "Connexion"
-                button = "Se connecter"
-                help_text = ""
-            else:
-                title = "Creation du compte"
-                button = "Creer"
-                help_text = "Definis un utilisateur et mot de passe."
-            body = (
-                LOGIN_HTML.replace("%TITLE%", title)
-                .replace("%BUTTON%", button)
-                .replace("%HELP%", help_text)
-                .replace("%ERROR%", error)
-                .replace("%USERNAME%", username_prefill)
-            )
-            body = body.encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-            return
-
-        if not _check_auth_cookie(self.headers):
-            self.send_response(302)
-            self.send_header("Set-Cookie", "auth=; Max-Age=0; HttpOnly; SameSite=Strict")
-            self.send_header("Location", "/login")
-            self.end_headers()
-            return
-
+        path = urlparse(self.path).path
         if path == "/":
             body = INDEX_HTML.encode("utf-8")
             self.send_response(200)
@@ -1372,57 +1157,12 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-        if path == "/logs":
-            body = json.dumps({"lines": list(LOG_BUFFER)}).encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-            return
 
         self.send_response(404)
         self.end_headers()
 
     def do_POST(self):
         path = urlparse(self.path).path
-        if path == "/login":
-            length = int(self.headers.get("Content-Length", "0") or 0)
-            raw = self.rfile.read(length).decode("utf-8", errors="ignore")
-            form = parse_qs(raw)
-            username = (form.get("username", [""])[0] or "").strip()
-            password = (form.get("password", [""])[0] or "").strip()
-            if not username or not password:
-                self.send_response(302)
-                self.send_header("Location", "/login?error=Champs+invalides&u=" + quote(username))
-                self.end_headers()
-                return
-
-            user, pw_hash, pw_salt = _get_web_auth()
-            if not user or not pw_hash or not pw_salt:
-                _set_web_auth(username, password)
-                user, pw_hash, pw_salt = _get_web_auth()
-
-            calc = _hash_password(password, pw_salt or "")
-            if user == username and hmac.compare_digest(calc, pw_hash or ""):
-                token = secrets.token_hex(24)
-                SESSIONS.add(token)
-                self.send_response(302)
-                self.send_header("Set-Cookie", f"auth={token}; HttpOnly; SameSite=Strict")
-                self.send_header("Location", "/")
-                self.end_headers()
-                return
-
-            self.send_response(302)
-            self.send_header("Location", "/login?error=Identifiants+invalides&u=" + quote(username))
-            self.end_headers()
-            return
-
-        if not _check_auth_cookie(self.headers):
-            self.send_response(401)
-            self.end_headers()
-            return
         if path == "/stop":
             body = b"stopping"
             self.send_response(200)
@@ -1448,75 +1188,14 @@ class Handler(BaseHTTPRequestHandler):
             if HTTPD is not None:
                 threading.Thread(target=HTTPD.shutdown, daemon=True).start()
             return
-        if path == "/logs/clear":
-            LOG_BUFFER.clear()
-            body = b"cleared"
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-            return
-        if path == "/logout":
-            token = _get_auth_cookie(self.headers)
-            if token:
-                SESSIONS.discard(token)
-            body = b"logout"
-            self.send_response(200)
-            self.send_header("Set-Cookie", "auth=; Max-Age=0; HttpOnly; SameSite=Strict")
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-            return
         self.send_response(404)
         self.end_headers()
 
 
 def serve_web() -> None:
     global HTTPD
-    _enable_log_capture()
     HTTPD = HTTPServer(("0.0.0.0", 8181), Handler)
     print("Serving on http://0.0.0.0:8181")
-    HTTPD.serve_forever()
-
-
-def ensure_self_signed_cert(cert_path: str, key_path: str) -> None:
-    if Path(cert_path).exists() and Path(key_path).exists():
-        return
-    cmd = [
-        "openssl",
-        "req",
-        "-x509",
-        "-newkey",
-        "rsa:2048",
-        "-nodes",
-        "-keyout",
-        key_path,
-        "-out",
-        cert_path,
-        "-days",
-        "365",
-        "-subj",
-        "/CN=localhost",
-    ]
-    r = subprocess.run(cmd, capture_output=True, text=True)
-    if r.returncode != 0:
-        raise RuntimeError(
-            "Impossible de generer le certificat auto-signe. "
-            "Installe openssl ou specifie --cert/--key. "
-            f"Erreur: {r.stderr.strip()}"
-        )
-
-
-def serve_web_https(cert_path: str, key_path: str) -> None:
-    global HTTPD
-    _enable_log_capture()
-    HTTPD = HTTPServer(("0.0.0.0", 8181), Handler)
-    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    ctx.load_cert_chain(certfile=cert_path, keyfile=key_path)
-    HTTPD.socket = ctx.wrap_socket(HTTPD.socket, server_side=True)
-    print("Serving on https://0.0.0.0:8181")
     HTTPD.serve_forever()
 
 
@@ -1652,35 +1331,15 @@ if __name__ == "__main__":
     parser.add_argument("--server", action="store_true", help="Run the web server on port 8181")
     parser.add_argument("--monitor", action="store_true", help="Run the inventory monitor loop")
     parser.add_argument("--login", action="store_true", help="Force Steam login and refresh cookies.txt")
-    parser.add_argument("--http", action="store_true", help="Serve HTTP (default is HTTPS)")
-    parser.add_argument("--cert", default=None, help="Path to SSL certificate (PEM)")
-    parser.add_argument("--key", default=None, help="Path to SSL private key (PEM)")
-    parser.add_argument("--reset-web-auth", action="store_true", help="Reset web UI login credentials")
     args = parser.parse_args()
-
-    if args.reset_web_auth:
-        _clear_web_auth()
-        print("[web] Web auth reset.")
 
     steamid64 = ensure_login_if_needed(force=args.login)
 
     if args.server and args.monitor:
-        if args.http:
-            threading.Thread(target=serve_web, daemon=True).start()
-        else:
-            cert_path = args.cert or CERT_FILE
-            key_path = args.key or KEY_FILE
-            ensure_self_signed_cert(cert_path, key_path)
-            threading.Thread(target=lambda: serve_web_https(cert_path, key_path), daemon=True).start()
+        threading.Thread(target=serve_web, daemon=True).start()
         main(steamid64)
     elif args.server:
-        if args.http:
-            serve_web()
-        else:
-            cert_path = args.cert or CERT_FILE
-            key_path = args.key or KEY_FILE
-            ensure_self_signed_cert(cert_path, key_path)
-            serve_web_https(cert_path, key_path)
+        serve_web()
         if UPDATE_EVENT.is_set():
             run_git_pull()
             restart_self()
