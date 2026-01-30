@@ -11,6 +11,7 @@ import os
 import atexit
 import sys
 import ssl
+from collections import deque
 from pathlib import Path
 from typing import Dict, Set, Tuple, Optional, Any
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -39,6 +40,34 @@ SETTINGS_FILE = BASE_DIR / "settings.json"
 STATE_FILE = BASE_DIR / "inventory_state.json"
 CERT_FILE = str(BASE_DIR / "selfsigned.crt")
 KEY_FILE = str(BASE_DIR / "selfsigned.key")
+
+LOG_BUFFER = deque(maxlen=1000)
+_ORIG_STDOUT = sys.stdout
+_ORIG_STDERR = sys.stderr
+
+
+class _LogTee:
+    def __init__(self, stream):
+        self._stream = stream
+        self._buf = ""
+
+    def write(self, s):
+        if not s:
+            return
+        self._stream.write(s)
+        self._buf += s
+        while "\n" in self._buf:
+            line, self._buf = self._buf.split("\n", 1)
+            if line:
+                LOG_BUFFER.append(line)
+
+    def flush(self):
+        self._stream.flush()
+
+
+def _enable_log_capture():
+    sys.stdout = _LogTee(_ORIG_STDOUT)
+    sys.stderr = _LogTee(_ORIG_STDERR)
 
 # ---------------------------
 # HTTP session (Market only)
@@ -996,6 +1025,12 @@ INDEX_HTML = """<!doctype html>
     <button id="updateBtn" style="margin-top:8px;margin-left:8px;padding:6px 10px;border:1px solid #e4c9b8;border-radius:10px;background:#ffe6cf;cursor:pointer;">
       Mettre a jour
     </button>
+    <button id="consoleBtn" style="margin-top:8px;margin-left:8px;padding:6px 10px;border:1px solid #e4c9b8;border-radius:10px;background:#fff0f0;cursor:pointer;">
+      Console
+    </button>
+    <button id="clearConsoleBtn" style="margin-top:8px;margin-left:8px;padding:6px 10px;border:1px solid #e4c9b8;border-radius:10px;background:#fdf1dd;cursor:pointer;">
+      Clear console
+    </button>
   </header>
   <div class="grid">
     <section class="card">
@@ -1026,6 +1061,10 @@ INDEX_HTML = """<!doctype html>
       </table>
     </section>
   </div>
+  <section class="card" id="consoleCard" style="margin:0 20px 24px; display:none;">
+    <h2>Console</h2>
+    <pre id="consoleLogs" style="height:260px;overflow:auto;background:#fffaf2;border:1px dashed #e4c9b8;border-radius:12px;padding:10px;font-size:12px;"></pre>
+  </section>
 <script>
   function euro(cents) {
     return (cents / 100).toFixed(2) + "€";
@@ -1130,6 +1169,39 @@ INDEX_HTML = """<!doctype html>
     await fetch("/update", { method: "POST" });
     alert("Mise a jour lancee. Le script va redemarrer.");
   });
+
+  let consoleVisible = false;
+  let consoleTimer = null;
+  let consoleLines = [];
+  const CONSOLE_MAX_LINES = 200;
+
+  async function refreshConsole() {
+    if (!consoleVisible) return;
+    const r = await fetch("/logs", { cache: "no-store" });
+    const data = await r.json();
+    const el = document.getElementById("consoleLogs");
+    const incoming = data.lines || [];
+    consoleLines = incoming.slice(-CONSOLE_MAX_LINES);
+    el.textContent = consoleLines.join("\\n");
+    el.scrollTop = el.scrollHeight;
+  }
+
+  document.getElementById("consoleBtn").addEventListener("click", async () => {
+    consoleVisible = !consoleVisible;
+    document.getElementById("consoleCard").style.display = consoleVisible ? "block" : "none";
+    if (consoleVisible) {
+      await refreshConsole();
+      consoleTimer = setInterval(refreshConsole, 2000);
+    } else if (consoleTimer) {
+      clearInterval(consoleTimer);
+      consoleTimer = null;
+    }
+  });
+
+  document.getElementById("clearConsoleBtn").addEventListener("click", () => {
+    consoleLines = [];
+    document.getElementById("consoleLogs").textContent = "";
+  });
 </script>
 </body>
 </html>
@@ -1152,6 +1224,15 @@ class Handler(BaseHTTPRequestHandler):
             state = load_state()
             payload = build_payload(state)
             body = json.dumps(payload).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if path == "/logs":
+            body = json.dumps({"lines": list(LOG_BUFFER)}).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Cache-Control", "no-store")
@@ -1196,6 +1277,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def serve_web() -> None:
     global HTTPD
+    _enable_log_capture()
     HTTPD = HTTPServer(("0.0.0.0", 8181), Handler)
     print("Serving on http://0.0.0.0:8181")
     HTTPD.serve_forever()
@@ -1231,6 +1313,7 @@ def ensure_self_signed_cert(cert_path: str, key_path: str) -> None:
 
 def serve_web_https(cert_path: str, key_path: str) -> None:
     global HTTPD
+    _enable_log_capture()
     HTTPD = HTTPServer(("0.0.0.0", 8181), Handler)
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.load_cert_chain(certfile=cert_path, keyfile=key_path)
