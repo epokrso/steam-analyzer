@@ -137,13 +137,48 @@ def _set_web_auth(username: str, password: str) -> None:
     save_settings(settings)
 
 
-def _check_auth_cookie(headers) -> bool:
+def _get_auth_cookie(headers) -> Optional[str]:
     cookie = headers.get("Cookie") or ""
     for part in cookie.split(";"):
         part = part.strip()
         if part.startswith("auth="):
-            token = part.split("=", 1)[1]
-            return token in SESSIONS
+            return part.split("=", 1)[1]
+    return None
+
+
+def _get_remember_store() -> Dict[str, str]:
+    settings = load_settings()
+    return settings.get("web_remember", {}) or {}
+
+
+def _save_remember_store(store: Dict[str, str]) -> None:
+    settings = load_settings()
+    settings["web_remember"] = store
+    save_settings(settings)
+
+
+def _hash_token(token: str, salt: str) -> str:
+    dk = hashlib.pbkdf2_hmac("sha256", token.encode("utf-8"), salt.encode("utf-8"), 120_000)
+    return dk.hex()
+
+
+def _set_remember_token(token: str) -> None:
+    salt = secrets.token_hex(16)
+    store = _get_remember_store()
+    store[_hash_token(token, salt)] = salt
+    _save_remember_store(store)
+
+
+def _check_auth_cookie(headers) -> bool:
+    token = _get_auth_cookie(headers)
+    if not token:
+        return False
+    if token in SESSIONS:
+        return True
+    store = _get_remember_store()
+    for hashed, salt in store.items():
+        if hmac.compare_digest(_hash_token(token, salt), hashed):
+            return True
     return False
 
 
@@ -1344,6 +1379,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if not _check_auth_cookie(self.headers):
             self.send_response(302)
+            self.send_header("Set-Cookie", "auth=; Max-Age=0; HttpOnly; SameSite=Strict")
             self.send_header("Location", "/login")
             self.end_headers()
             return
@@ -1404,7 +1440,10 @@ class Handler(BaseHTTPRequestHandler):
             calc = _hash_password(password, pw_salt or "")
             if user == username and hmac.compare_digest(calc, pw_hash or ""):
                 token = secrets.token_hex(24)
-                SESSIONS.add(token)
+                if remember:
+                    _set_remember_token(token)
+                else:
+                    SESSIONS.add(token)
                 self.send_response(302)
                 if remember:
                     self.send_header("Set-Cookie", f"auth={token}; HttpOnly; SameSite=Strict; Max-Age=2592000")
@@ -1458,12 +1497,18 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
         if path == "/logout":
-            cookie = self.headers.get("Cookie") or ""
-            for part in cookie.split(";"):
-                part = part.strip()
-                if part.startswith("auth="):
-                    token = part.split("=", 1)[1]
-                    SESSIONS.discard(token)
+            token = _get_auth_cookie(self.headers)
+            if token:
+                SESSIONS.discard(token)
+                store = _get_remember_store()
+                to_delete = []
+                for hashed, salt in store.items():
+                    if hmac.compare_digest(_hash_token(token, salt), hashed):
+                        to_delete.append(hashed)
+                for h in to_delete:
+                    store.pop(h, None)
+                if to_delete:
+                    _save_remember_store(store)
             body = b"logout"
             self.send_response(200)
             self.send_header("Set-Cookie", "auth=; Max-Age=0; HttpOnly; SameSite=Strict")
