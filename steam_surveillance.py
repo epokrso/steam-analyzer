@@ -1028,9 +1028,6 @@ INDEX_HTML = """<!doctype html>
     <button id="consoleBtn" style="margin-top:8px;margin-left:8px;padding:6px 10px;border:1px solid #e4c9b8;border-radius:10px;background:#fff0f0;cursor:pointer;">
       Console
     </button>
-    <button id="clearConsoleBtn" style="margin-top:8px;margin-left:8px;padding:6px 10px;border:1px solid #e4c9b8;border-radius:10px;background:#fdf1dd;cursor:pointer;">
-      Clear console
-    </button>
   </header>
   <div class="grid">
     <section class="card">
@@ -1062,7 +1059,12 @@ INDEX_HTML = """<!doctype html>
     </section>
   </div>
   <section class="card" id="consoleCard" style="margin:0 20px 24px; display:none;">
-    <h2>Console</h2>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+      <h2 style="margin:0;">Console</h2>
+      <button id="clearConsoleBtn" style="padding:6px 10px;border:1px solid #e4c9b8;border-radius:10px;background:#fdf1dd;cursor:pointer;display:none;">
+        Clear console
+      </button>
+    </div>
     <pre id="consoleLogs" style="height:260px;overflow:auto;background:#fffaf2;border:1px dashed #e4c9b8;border-radius:12px;padding:10px;font-size:12px;"></pre>
   </section>
 <script>
@@ -1189,6 +1191,7 @@ INDEX_HTML = """<!doctype html>
   document.getElementById("consoleBtn").addEventListener("click", async () => {
     consoleVisible = !consoleVisible;
     document.getElementById("consoleCard").style.display = consoleVisible ? "block" : "none";
+    document.getElementById("clearConsoleBtn").style.display = consoleVisible ? "inline-block" : "none";
     if (consoleVisible) {
       await refreshConsole();
       consoleTimer = setInterval(refreshConsole, 2000);
