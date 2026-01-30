@@ -822,7 +822,7 @@ def save_state(state: dict) -> None:
 # ---------------------------
 # Market analysis
 # ---------------------------
-SELL_TURNOVER_THRESHOLD = 0.15  # 15% des listings vendus par jour = vendu rapidement
+SELL_TURNOVER_THRESHOLD = 0.008  # 0.8% des listings vendus par jour = vendu rapidement
 SELL_MIN_DAILY_SALES = 2
 
 
