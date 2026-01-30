@@ -62,6 +62,7 @@ LOGIN_HTML = """<!doctype html>
     h1 { margin:0 0 12px; font-size:22px; }
     label { display:block; margin:10px 0 6px; font-size:14px; }
     input { width:100%; padding:8px 10px; border:1px solid #e4c9b8; border-radius:8px; }
+    input[type="checkbox"] { width:auto; padding:0; border:none; }
     button { margin-top:12px; padding:8px 12px; border:1px solid #e4c9b8; border-radius:10px;
       background:#ffe6cf; cursor:pointer; }
     .muted { color:#6f5f54; font-size:12px; }
@@ -75,10 +76,10 @@ LOGIN_HTML = """<!doctype html>
       <input name="username" autocomplete="username" value="%USERNAME%" required />
       <label>Mot de passe</label>
       <input name="password" type="password" autocomplete="current-password" required />
-      <label style="margin-top:10px;display:flex;gap:8px;align-items:center;">
-        <input type="checkbox" name="remember" />
-        <span>Se souvenir de moi</span>
-      </label>
+      <div style="margin-top:10px;display:flex;gap:8px;align-items:center;">
+        <input id="remember" type="checkbox" name="remember" />
+        <label for="remember" style="margin:0;">Se souvenir de moi</label>
+      </div>
       <button type="submit">%BUTTON%</button>
     </form>
     <div class="muted">%HELP%</div>
