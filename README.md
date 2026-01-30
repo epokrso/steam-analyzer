@@ -2,6 +2,7 @@
 
 Ce script surveille automatiquement l'inventaire Steam de ton compte, estime la valeur des items, et propose une analyse de marché (items interéssant a vendre ou pas).  
 Il embarque aussi un mini serveur web pour visualiser les données en temps réel.
+Je suis ouvert à toutes propositions d'améliorations
 
 ## Fonctionnalités
 - Suivi des inventaires pour une liste de jeux configurés
@@ -53,20 +54,6 @@ Si la connexion bloque:
 - Relance `--login` si besoin (recréé les fichiers de connexion)
 
 ## Licence
-Copyright (c) 2026 Arthur Lesage
-
-Permission is granted to use and redistribute this software
-for non-commercial purposes, without modification, free of charge.
-
-You MUST notify the author if:
-- you modify the source code
-- you use this software or a derivative work for commercial purposes
-
-Notification must be sent prior to usage and include:
-- the nature of the modification or commercial use
-- the name of the project or company
-
-The author reserves the right to grant or deny permission
-for modified or commercial usage.
-
-THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+For license notifications:
+- open a GitHub issue titled "License notification"
+- send an mail to arthurepk@icloud.com
