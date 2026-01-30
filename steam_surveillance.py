@@ -1201,9 +1201,14 @@ INDEX_HTML = """<!doctype html>
     }
   });
 
-  document.getElementById("clearConsoleBtn").addEventListener("click", () => {
+  document.getElementById("clearConsoleBtn").addEventListener("click", async () => {
     consoleLines = [];
     document.getElementById("consoleLogs").textContent = "";
+    try {
+      await fetch("/logs/clear", { method: "POST" });
+    } catch (e) {
+      // ignore
+    }
   });
 </script>
 </body>
@@ -1273,6 +1278,15 @@ class Handler(BaseHTTPRequestHandler):
             STOP_EVENT.set()
             if HTTPD is not None:
                 threading.Thread(target=HTTPD.shutdown, daemon=True).start()
+            return
+        if path == "/logs/clear":
+            LOG_BUFFER.clear()
+            body = b"cleared"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
             return
         self.send_response(404)
         self.end_headers()
