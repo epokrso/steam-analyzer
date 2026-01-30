@@ -372,146 +372,146 @@ def login_and_save_cookies() -> str:
             page.goto("https://steamcommunity.com/login/home/?goto=%2Fmy%2F", wait_until="domcontentloaded")
             page.wait_for_timeout(2000)
 
-        def fill_in_frame(frame) -> bool:
-            try:
-                # Try label-based targeting (localised UI on community login).
+            def fill_in_frame(frame) -> bool:
                 try:
-                    label_user = frame.get_by_label("Se connecter avec un nom de compte")
-                    label_pass = frame.get_by_label("Mot de passe")
-                    if label_user.count() > 0 and label_pass.count() > 0:
-                        label_user.first.fill(username)
-                        label_pass.first.fill(password)
-                        submit_label = frame.get_by_role("button", name="Se connecter")
-                        if submit_label.count() > 0:
-                            submit_label.first.click()
-                            try:
-                                frame.page.wait_for_load_state("domcontentloaded", timeout=15000)
-                            except Exception:
-                                pass
-                        return True
-                except Exception:
-                    pass
-
-                user_locator = frame.locator(
-                    "input[name='username'], input[type='text'][autocomplete='username'], input[name='login'], "
-                    "input#input_username, input[name='accountname'], input._2GBWeup5cttgbTw8FM3tfx[type='text']"
-                )
-                pass_locator = frame.locator(
-                    "input[type='password'], input[name='password'], input#input_password, "
-                    "input._2GBWeup5cttgbTw8FM3tfx[type='password']"
-                )
-                if user_locator.count() == 0 or pass_locator.count() == 0:
-                    return False
-                user_locator.first.wait_for(state="visible", timeout=8000)
-                pass_locator.first.wait_for(state="visible", timeout=8000)
-                try:
-                    user_locator.first.fill(username)
-                except Exception:
-                    user_locator.first.click()
-                    user_locator.first.type(username, delay=20)
-                try:
-                    pass_locator.first.fill(password)
-                except Exception:
-                    pass_locator.first.click()
-                    pass_locator.first.type(password, delay=20)
-
-                # Ensure values are set in case of custom JS handlers.
-                frame.evaluate(
-                    """(args) => {
-                        const userSel = args.userSel;
-                        const passSel = args.passSel;
-                        const u = args.u;
-                        const p = args.p;
-                        const setVal = (sel, v) => {
-                            const el = document.querySelector(sel);
-                            if (!el) return;
-                            el.value = v;
-                            el.dispatchEvent(new Event('input', { bubbles: true }));
-                            el.dispatchEvent(new Event('change', { bubbles: true }));
-                        };
-                        setVal(userSel, u);
-                        setVal(passSel, p);
-                    }""",
-                    {
-                        "userSel": "input[name='username'], input[type='text'][autocomplete='username'], input[name='login'], input#input_username, input[name='accountname'], input._2GBWeup5cttgbTw8FM3tfx[type='text']",
-                        "passSel": "input[type='password'], input[name='password'], input#input_password, input._2GBWeup5cttgbTw8FM3tfx[type='password']",
-                        "u": username,
-                        "p": password,
-                    },
-                )
-                submit = frame.locator(
-                    "button[type='submit'], button:has-text('Sign In'), button:has-text('Connexion'), "
-                    "button#login_btn_signin, button.DjSvCZoKKfoNSmarsEcTS, button:has-text('Se connecter')"
-                )
-                if submit.count() > 0:
+                    # Try label-based targeting (localised UI on community login).
                     try:
-                        submit.first.click()
-                    except Exception:
-                        try:
-                            submit.first.click(force=True)
-                        except Exception:
-                            try:
-                                frame.evaluate(
-                                    """(btnSel) => {
-                                        const btn = document.querySelector(btnSel);
-                                        if (btn) btn.click();
-                                    }""",
-                                    "button.DjSvCZoKKfoNSmarsEcTS",
-                                )
-                            except Exception:
-                                pass
-                    page_obj = frame.page if hasattr(frame, "page") else frame
-                    _human_click(submit, page_obj)
-                    try:
-                        page_obj.wait_for_load_state("domcontentloaded", timeout=15000)
+                        label_user = frame.get_by_label("Se connecter avec un nom de compte")
+                        label_pass = frame.get_by_label("Mot de passe")
+                        if label_user.count() > 0 and label_pass.count() > 0:
+                            label_user.first.fill(username)
+                            label_pass.first.fill(password)
+                            submit_label = frame.get_by_role("button", name="Se connecter")
+                            if submit_label.count() > 0:
+                                submit_label.first.click()
+                                try:
+                                    frame.page.wait_for_load_state("domcontentloaded", timeout=15000)
+                                except Exception:
+                                    pass
+                            return True
                     except Exception:
                         pass
-                else:
-                    # Fallback: submit via Enter on password field.
+
+                    user_locator = frame.locator(
+                        "input[name='username'], input[type='text'][autocomplete='username'], input[name='login'], "
+                        "input#input_username, input[name='accountname'], input._2GBWeup5cttgbTw8FM3tfx[type='text']"
+                    )
+                    pass_locator = frame.locator(
+                        "input[type='password'], input[name='password'], input#input_password, "
+                        "input._2GBWeup5cttgbTw8FM3tfx[type='password']"
+                    )
+                    if user_locator.count() == 0 or pass_locator.count() == 0:
+                        return False
+                    user_locator.first.wait_for(state="visible", timeout=8000)
+                    pass_locator.first.wait_for(state="visible", timeout=8000)
                     try:
-                        pass_locator.first.press("Enter")
-                        page_obj = frame.page if hasattr(frame, "page") else frame
-                        page_obj.wait_for_load_state("domcontentloaded", timeout=15000)
+                        user_locator.first.fill(username)
                     except Exception:
-                        pass
-                # Last resort: submit the nearest form via JS.
-                try:
+                        user_locator.first.click()
+                        user_locator.first.type(username, delay=20)
+                    try:
+                        pass_locator.first.fill(password)
+                    except Exception:
+                        pass_locator.first.click()
+                        pass_locator.first.type(password, delay=20)
+
+                    # Ensure values are set in case of custom JS handlers.
                     frame.evaluate(
                         """(args) => {
-                            const u = document.querySelector(args.userSel);
-                            const p = document.querySelector(args.passSel);
-                            const form = (u && u.closest('form')) || (p && p.closest('form'));
-                            if (form && form.requestSubmit) form.requestSubmit();
-                            else if (form) form.submit();
+                            const userSel = args.userSel;
+                            const passSel = args.passSel;
+                            const u = args.u;
+                            const p = args.p;
+                            const setVal = (sel, v) => {
+                                const el = document.querySelector(sel);
+                                if (!el) return;
+                                el.value = v;
+                                el.dispatchEvent(new Event('input', { bubbles: true }));
+                                el.dispatchEvent(new Event('change', { bubbles: true }));
+                            };
+                            setVal(userSel, u);
+                            setVal(passSel, p);
                         }""",
                         {
                             "userSel": "input[name='username'], input[type='text'][autocomplete='username'], input[name='login'], input#input_username, input[name='accountname'], input._2GBWeup5cttgbTw8FM3tfx[type='text']",
                             "passSel": "input[type='password'], input[name='password'], input#input_password, input._2GBWeup5cttgbTw8FM3tfx[type='password']",
+                            "u": username,
+                            "p": password,
                         },
                     )
-                    page_obj = frame.page if hasattr(frame, "page") else frame
-                    page_obj.wait_for_load_state("domcontentloaded", timeout=15000)
-                except Exception:
-                    pass
-                return True
-            except Exception as e:
-                print(f"[login] fill_in_frame failed: {e}")
-                return False
+                    submit = frame.locator(
+                        "button[type='submit'], button:has-text('Sign In'), button:has-text('Connexion'), "
+                        "button#login_btn_signin, button.DjSvCZoKKfoNSmarsEcTS, button:has-text('Se connecter')"
+                    )
+                    if submit.count() > 0:
+                        try:
+                            submit.first.click()
+                        except Exception:
+                            try:
+                                submit.first.click(force=True)
+                            except Exception:
+                                try:
+                                    frame.evaluate(
+                                        """(btnSel) => {
+                                            const btn = document.querySelector(btnSel);
+                                            if (btn) btn.click();
+                                        }""",
+                                        "button.DjSvCZoKKfoNSmarsEcTS",
+                                    )
+                                except Exception:
+                                    pass
+                        page_obj = frame.page if hasattr(frame, "page") else frame
+                        _human_click(submit, page_obj)
+                        try:
+                            page_obj.wait_for_load_state("domcontentloaded", timeout=15000)
+                        except Exception:
+                            pass
+                    else:
+                        # Fallback: submit via Enter on password field.
+                        try:
+                            pass_locator.first.press("Enter")
+                            page_obj = frame.page if hasattr(frame, "page") else frame
+                            page_obj.wait_for_load_state("domcontentloaded", timeout=15000)
+                        except Exception:
+                            pass
+                    # Last resort: submit the nearest form via JS.
+                    try:
+                        frame.evaluate(
+                            """(args) => {
+                                const u = document.querySelector(args.userSel);
+                                const p = document.querySelector(args.passSel);
+                                const form = (u && u.closest('form')) || (p && p.closest('form'));
+                                if (form && form.requestSubmit) form.requestSubmit();
+                                else if (form) form.submit();
+                            }""",
+                            {
+                                "userSel": "input[name='username'], input[type='text'][autocomplete='username'], input[name='login'], input#input_username, input[name='accountname'], input._2GBWeup5cttgbTw8FM3tfx[type='text']",
+                                "passSel": "input[type='password'], input[name='password'], input#input_password, input._2GBWeup5cttgbTw8FM3tfx[type='password']",
+                            },
+                        )
+                        page_obj = frame.page if hasattr(frame, "page") else frame
+                        page_obj.wait_for_load_state("domcontentloaded", timeout=15000)
+                    except Exception:
+                        pass
+                    return True
+                except Exception as e:
+                    print(f"[login] fill_in_frame failed: {e}")
+                    return False
 
-        filled = False
-        if fill_in_frame(page):
-            filled = True
-        else:
-            for frame in page.frames:
-                try:
-                    frame.wait_for_timeout(500)
-                except Exception:
-                    pass
-                if fill_in_frame(frame):
-                    filled = True
-                    break
-        if not filled:
-            print("[login] Impossible de remplir les champs automatiquement. Essaie en mode UI.")
+            filled = False
+            if fill_in_frame(page):
+                filled = True
+            else:
+                for frame in page.frames:
+                    try:
+                        frame.wait_for_timeout(500)
+                    except Exception:
+                        pass
+                    if fill_in_frame(frame):
+                        filled = True
+                        break
+            if not filled:
+                print("[login] Impossible de remplir les champs automatiquement. Essaie en mode UI.")
 
             # Wait for login / Steam Guard app approval to complete.
             steamid64 = _wait_for_login_complete(page, timeout_s=180)
