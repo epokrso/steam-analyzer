@@ -1062,9 +1062,15 @@ INDEX_HTML = """<!doctype html>
   <section class="card" id="consoleCard" style="margin:0 20px 24px; display:none;">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
       <h2 style="margin:0;">Console</h2>
-      <button id="clearConsoleBtn" style="padding:6px 10px;border:1px solid #e4c9b8;border-radius:10px;background:#fdf1dd;cursor:pointer;display:none;">
-        Clear console
-      </button>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <label style="font-size:12px;color:#6f5f54;display:flex;align-items:center;gap:6px;">
+          <input id="filterConsoleChk" type="checkbox" checked />
+          Masquer GET /logs et /data
+        </label>
+        <button id="clearConsoleBtn" style="padding:6px 10px;border:1px solid #e4c9b8;border-radius:10px;background:#fdf1dd;cursor:pointer;display:none;">
+          Clear console
+        </button>
+      </div>
     </div>
     <pre id="consoleLogs" style="height:260px;overflow:auto;background:#fffaf2;border:1px dashed #e4c9b8;border-radius:12px;padding:10px;font-size:12px;"></pre>
   </section>
@@ -1177,13 +1183,19 @@ INDEX_HTML = """<!doctype html>
   let consoleTimer = null;
   const CONSOLE_MAX_LINES = 200;
 
+  function filterConsoleLines(lines) {
+    if (!document.getElementById("filterConsoleChk").checked) return lines;
+    return lines.filter(l => !(l.includes("GET /logs") || l.includes("GET /data")));
+  }
+
   async function refreshConsole() {
     if (!consoleVisible) return;
     const r = await fetch("/logs", { cache: "no-store" });
     const data = await r.json();
     const el = document.getElementById("consoleLogs");
     const incoming = data.lines || [];
-    const lines = incoming.slice(-CONSOLE_MAX_LINES);
+    const filtered = filterConsoleLines(incoming);
+    const lines = filtered.slice(-CONSOLE_MAX_LINES);
     el.textContent = lines.join("\\n");
     el.scrollTop = el.scrollHeight;
   }
@@ -1200,6 +1212,8 @@ INDEX_HTML = """<!doctype html>
       consoleTimer = null;
     }
   });
+
+  document.getElementById("filterConsoleChk").addEventListener("change", refreshConsole);
 
   document.getElementById("clearConsoleBtn").addEventListener("click", async () => {
     document.getElementById("consoleLogs").textContent = "";
